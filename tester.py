@@ -1,4 +1,4 @@
-from model import Model, RK4step, dxdt
+from model import Model, RK4step, dx_dt
 from data_eater import reduce
 
 import numpy as np
@@ -30,10 +30,10 @@ for step in range(0, int(size*size/1.5), max(int(size*size/15), 1)):
     dt, stabtol, x0 = 1e-2, 1e-3, 0.5*np.random.rand(size)+0.25
     av_k_in = round(np.transpose(np.ones(size)) @ W @ np.ones(size)/size, 2)
 
-    model.LaurenceMultiDimAnalysisRun(x0=x0, dt=dt, stabtol=stabtol)
+    model.laurence_multi_dim_analysis_run(x0=x0, dt=dt, stabtol=stabtol)
 
-    func = lambda arr: dxdt(tuple(arr), F, G, tuple(tuple(row) for row in W))
-    xf, N = model.stabilityrun(dt=dt, stabtol=stabtol, x0=x0, debugging=2, title=f"step {step}, kin {av_k_in}")
+    func = lambda arr: dx_dt(tuple(arr), F, G, tuple(tuple(row) for row in W))
+    xf, N = stability_run(dt=dt, stabtol=stabtol, x0=x0, debugging=2, title=f"step {step}, kin {av_k_in}")
     print("normed eigs", np.sort(np.absolute(np.linalg.eig(W)[0])))
     a, alpha, beta = reduce(W)
     f = lambda R: F(R) + alpha * G(beta*R, R)

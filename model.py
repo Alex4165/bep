@@ -1,14 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Callable
+from typing import Callable, List
 from scipy.integrate import solve_ivp
-from scipy.optimize import minimize, fsolve
+from scipy.optimize import minimize, root
 import scipy.io
 import json
 import time
 import networkx as nx
 import cProfile
 from functools import lru_cache
+from dataclasses import dataclass, field
 
 # ECB_link = scipy.io.loadmat('ECB_link.mat')["outputs"]
 # ECB_node = scipy.io.loadmat('ECB_node.mat')["outputs"]
@@ -28,14 +29,14 @@ def real(x):
         return np.real(x)
 
 
-def RK4step(dt, f, x):
+def RK4step(dt, func, x):
     """Returns one Runge-Kutta 4 integration step
      Note:  assumes f is independent of time!
             returns dx, not x+dx"""
-    k1 = f(x)
-    k2 = f(x + dt * k1 / 2)
-    k3 = f(x + dt * k2 / 2)
-    k4 = f(x + dt * k3)
+    k1 = func(x)
+    k2 = func(x + dt * k1 / 2)
+    k3 = func(x + dt * k2 / 2)
+    k4 = func(x + dt * k3)
     return (k1 + 2 * k2 + 2 * k3 + k4) * dt / 6
 
 
@@ -69,14 +70,18 @@ def rootfinder(f, interval, etol=1e-4, N=1000):
 
 
 @lru_cache(maxsize=None)
-def dxdt(x: tuple, F: Callable[[float], float], G: Callable[[float, float], float], W: tuple):
+def dx_dt(x: tuple, F: Callable[[float], float], G: Callable[[float, float], float], W: tuple):
     """The N-dimensional function determining the derivative of x."""
     f = np.zeros(len(x))
     for i, xi in enumerate(x):
         f[i] = F(xi)
-        for j, xj in enumerate(x):
-            f[i] += W[i][j] * G(xi, xj)
+        f[i] += np.sum([W[i][j] * G(x[i], x[j]) for j in range(len(x))])
     return f
+
+
+@lru_cache(maxsize=None)
+def exp(x):
+    return np.exp(x)
 
 
 def is_eig_vec(vec, matrix):
@@ -101,176 +106,301 @@ def calculate_a1a2(c_arr, w_t, alpha1, vs):
     """Calculates the inner product between a1 and a2"""
     n = len(vs)  # dimension of reduction
     m = len(vs[0])  # dimension of vector
-    a1 = np.sum([c_arr[i] * vs[i] for i in range(n)], axis=0) / np.sum([c_arr[i]*np.dot(np.ones(m), vs[i]) for i in range(n)])
-    a2 = np.dot(w_t, a1) / alpha1
-    a1_inner_a2 = np.dot(np.transpose(a1), a2)
+    a1 = np.sum([c_arr[i] * vs[i] for i in range(n)], axis=0) / np.sum([c_arr[i]*(np.ones(m) @ vs[i]) for i in range(n)])
+    a2 = (w_t @ a1) / alpha1
+    a1_inner_a2 = np.transpose(a1) @ a2
     return np.abs(a1_inner_a2)
+
+
+def stability_run(func, dt, stabtol, x0, debugging=0, title="Stability") -> (list, float):
+    """Calculates a network until stability has been reached. Debugging=1 full debug, =2 one plot.\n
+    Returns the stable solution vector and the index at stability"""
+    normF = 1
+    x = np.copy(x0)
+
+    if debugging > 0:
+        xs = [np.copy(x)]
+
+    i = 1
+    while normF > stabtol and i < 50/dt:
+        x += RK4step(dt, func, x)
+        normF = np.linalg.norm(func(x))
+        if debugging > 0:
+            xs.append(np.copy(x))
+            if debugging == 1 and i % (10/dt) == 0:  # plot every number of computed seconds
+                plt.plot([dt * n for n in range(len(xs))], xs)
+                plt.show()
+                time.sleep(1)
+        i += 1
+
+    if debugging > 0:
+        if True in np.iscomplex(xs):
+            plt.plot([dt * n for n in range(len(xs))], np.abs(xs))
+            plt.title(title)
+            plt.xlabel("Time (s)")
+            plt.ylabel("Magnitude")
+            plt.show()
+
+            plt.plot([dt * n for n in range(len(xs))], np.angle(xs))
+            plt.title(title)
+            plt.xlabel("Time (s)")
+            plt.ylabel("Phase (radians)")
+            plt.show()
+        else:
+            plt.plot([dt * n for n in range(len(xs))], xs)
+            plt.title(title)
+            plt.xlabel("Time (s)")
+            plt.ylabel("Activity")
+            plt.show()
+
+    return x, i
+
+
+@dataclass
+class Result:
+    w_matrix: np.ndarray
+    parameter1_list: List[float] = field(default_factory=list)
+    parameter2_list: List[float] = field(default_factory=list)
+    stable_x_list: List[np.ndarray] = field(default_factory=list)
+    alphas: List[np.ndarray] = field(default_factory=list)
+    betas: List[np.ndarray] = field(default_factory=list)
+    a_vectors: List[np.ndarray] = field(default_factory=list)
+    predictions: List[np.ndarray] = field(default_factory=list)
+    simulations: List[np.ndarray] = field(default_factory=list)
+
+
+class Network:
+    def __init__(self):
+        self.adj_matrix = None
+        self.graph = None
+        self.size = 0
+
+    def gen_random(self, size, p):
+        """Generate an Erdos-Renyi random graph with connection probability p."""
+        self.graph = nx.erdos_renyi_graph(size, p, directed=True)
+        self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
+        self.size = self.graph.amount_of_nodes
+
+    def gen_small_world(self, size, k, p):
+        """Generate a Watts-Strogatz random graph.
+        k is the amount of nearest neighbors first connected to.
+        p is the rewiring probability."""
+        self.graph = nx.watts_strogatz_graph(size, k, p)
+        self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
+        self.size = self.graph.amount_of_nodes
+
+    def gen_community(self, sizes: List[int], probabilities: List[List[float]] = None):
+        """Generate a community graph.
+        sizes is a list of the size of each community.
+        probabilities is a list of lists of probabilities such that (r,s) gives the
+        probability of community r attaching to s. If None, random values are taken."""
+        if probabilities is None:
+            probabilities = [[np.random.rand() for s in range(len(sizes))] for r in range(len(sizes))]
+        self.graph = nx.stochastic_block_model(sizes=sizes, p=probabilities, directed=True)
+        self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
+        self.size = self.graph.number_of_nodes()
+
+    def gen_hub(self, size, minimum_deg):
+        """Generate Barabasi-Albert graph which attaches new nodes preferentially to high degree nodes.
+        Creates a hub structure with predefined minimum node degree."""
+        self.graph = nx.barabasi_albert_graph(size, minimum_deg)
+        self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
+        self.size = self.graph.amount_of_nodes
+
+    def plot_graph(self):
+        """Plot graph"""
+        pos = nx.spring_layout(self.graph, k=1 / self.size ** 0.1)
+        for u, v, d in self.graph.edges(data=True):
+            d['weight'] = self.adj_matrix[u, v]
+
+        edges, weights = zip(*nx.get_edge_attributes(self.graph, 'weight').items())
+
+        nx.draw(self.graph, pos, node_color='b', edgelist=edges, edge_color=weights,
+                width=3, edge_cmap=plt.cm.Blues)
+        plt.show()
+
+    def randomize_weights(self, factor=2):
+        """Reweight connections by a uniform random value between 0 and factor."""
+        if self.adj_matrix is not None:
+            random_adjustments = factor*np.random.random_sample((self.size, self.size))
+            self.adj_matrix = np.multiply(self.adj_matrix, random_adjustments)
+        else:
+            raise ValueError("No network to speak of!")
 
 
 class Model:
     def __init__(self, W: np.ndarray, F: Callable[[float], float], G: Callable[[float, float], float]):
-        self.W = W
-        self.F = F
-        self.G = G
-        self.dim = self.W.shape[0]
+        self.w = W
+        self.decay_func = F
+        self.interact_func = G
+        self.dim = self.w.shape[0]
         self.solution = 0
 
     def run(self, x0: np.ndarray, tf: float = 10):
         """Compute N iterations with initial condition x0, from t=0 to tf, with precision dt"""
-        self.solution = solve_ivp(lambda t, x: dxdt(x, self.F, self.G, self.W), t_span=(0, tf), y0=x0)
+        self.solution = solve_ivp(lambda t, x: dx_dt(x, self.decay_func, self.interact_func, self.w), t_span=(0, tf),
+                                  y0=x0)
 
-    def randomStabilityAnalysis(self, p1p, p2p, dt, stabtol=1e-5):
+    def random_stability_analysis(self, p1p, p2p, dt, stabtol=1e-5):
         """Run an analysis of stable solutions with random initial vector for different input parameters"""
         p1s = np.linspace(p1p[0], p1p[1], p1p[2])  # tau
         p2s = np.linspace(p2p[0], p2p[1], p2p[2])  # mu
 
-        results = []
+        result = Result(w_matrix=np.copy(self.w))
         t1 = time.time()
         for p1 in p1s:
             for p2 in p2s:
-                self.F = lambda x: -x
-                self.G = lambda x, y: 1 / (1 + np.exp(p1*(p2-y))) - 1/(1+np.exp(p1*p2))
+                self.decay_func = lambda x: -x
+                const = 1 / (1 + np.exp(p1 * p2))
+                self.interact_func = lambda x, y: 1 / (1 + np.exp(p1 * (p2 - y))) - const
 
                 x = np.random.rand(self.dim)*self.dim+self.dim
 
-                func = lambda arr: dxdt(tuple(arr), self.F, self.G, tuple(tuple(row) for row in self.W))
-                x = self.stabilityrun(func=func, dt=dt, stabtol=stabtol, x0=x, debugging=False)
+                func = lambda arr: dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w))
+                x = stability_run(func=func, dt=dt, stabtol=stabtol, x0=x, debugging=False)[0]
 
-                results.append([p1, p2, np.mean(x), np.linalg.norm(x)])
+                result.parameter1_list.append(p1)
+                result.parameter2_list.append(p2)
+                result.stable_x_list.append(x)
 
             if TALKING and __name__ == "__main__":
                 print(f"Completed p1={round(p1,3)}. Total time taken: {round((time.time()-t1) // 60)} min and {round((time.time()-t1) % 60)} s")
                 # t1 = time.time()
 
-        results = np.transpose(results).tolist()
-        results.insert(0, self.W.tolist())  # results = [w, p1, p2, mean(x), norm(x)]
+        # results = np.transpose(results).tolist()
+        # results.insert(0, self.w.tolist())  # results = [w, p1, p2, mean(x), norm(x)]
+        results = [result.w_matrix.tolist(), result.parameter1_list, result.parameter2_list,
+                   np.mean(result.stable_x_list, axis=1).tolist(),
+                   np.linalg.norm(result.stable_x_list, axis=1).tolist()]
         if __name__ == "__main__":
-            with open('CowanWilsonstabilityresults'+str(time.time())+'.txt', 'w') as filehandle:
+            with open('data/CowanWilsonstabilityresults'+str(time.time())+'.txt', 'w') as filehandle:
                 json.dump(results, filehandle)
 
-        return results
+        return result
 
-    def LaurenceOneDimAnalysisRun(self, x0=None, dt=0.1, stabtol=1e-3):
+    def LaurenceOneDimAnalysisRun(self, x0, dt=0.1, stabtol=1e-3):
         # Definitions of One Dimensional Model
-        eigs, vecs = np.linalg.eig(np.transpose(self.W))
+        eigs, vecs = np.linalg.eig(np.transpose(self.w))
         k = np.argmax(np.multiply(eigs, np.conjugate(eigs)))
         a = vecs[:, k]/(sum(vecs[:, k]))
         alpha = eigs[k]
-        K = np.diag([sum(self.W[i, :]) for i in range(self.dim)])
+        K = np.diag([sum(self.w[i, :]) for i in range(self.dim)])
         beta = a @ K @ np.transpose(a) / (a @ np.transpose(a) * alpha)
 
         alpha = real(alpha)
         beta = real(beta)
 
         # Stability run
-        func = lambda arr: dxdt(tuple(arr), self.F, self.G, tuple(tuple(row) for row in self.W))
-        x = self.stabilityrun(func, dt, stabtol, x0)
+        func = lambda arr: dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w))
+        x = stability_run(func, dt, stabtol, x0)[0]
 
         simulation = real(a @ x)
 
-        rooter = lambda R: self.F(R) + alpha * self.G(beta * R, R)
+        rooter = lambda R: self.decay_func(R) + alpha * self.interact_func(beta * R, R)
+        numeric_R = stability_run(rooter, dt, stabtol, a @ x0, debugging=2)[0]
+        print("numeric 1d", numeric_R)
         # prediction = scipy.optimize.fsolve(rooter, [0, 20])
         prediction2 = rootfinder(rooter, [-1, 50])
         # print(f"{prediction} vs {prediction2}")
 
         return [alpha, simulation, prediction2, x]  # pass x to use as x0 next run (speeds up running time)
 
-    def stabilityrun(self, func, dt, stabtol, x0, debugging=0, title="Stability") -> (list, float):
-        """Calculates a network until stability has been reached. Debugging=1 full debug, =2 one plot.\n
-        Returns the stable solution vector and the index at stability"""
-        normF = 1
-        x = x0
-
-        if debugging > 0:
-            xs = [np.copy(x)]
-
-        i = 1
-        while normF > stabtol and i < 100/dt:
-            x += RK4step(dt, func, x)
-            normF = np.linalg.norm(func(x))
-            if debugging > 0:
-                xs.append(np.copy(x))
-                if debugging == 1 and i % (10/dt) == 0:  # plot every computed second
-                    plt.plot([dt * n for n in range(len(xs))], xs)
-                    plt.show()
-                    time.sleep(1)
-            i += 1
-
-        if debugging > 0:
-            plt.plot([dt * n for n in range(len(xs))], xs)
-            plt.title(title)
-            plt.show()
-
-        return x, i
-
-    def LaurenceMultiDimAnalysisRun(self, x0, dt=1e-2, stabtol=1e-3):
-        """Returns simulation result, prediction with multidimensional reduction, list of a vectors and
-        list of beta values used."""
-        w_t = np.transpose(self.W)
+    def laurence_multi_dim_analysis_run(self, x0, dt=1e-2, stabtol=1e-3):
+        """Returns simulation result, prediction with multidimensional reduction, list of 'a' vectors, alphas and
+        beta values used (in order of eigenvalue norm descending)."""
+        w_t = np.transpose(self.w)
         eigs, vecs = np.linalg.eig(w_t)
 
         # I/O and validation
         # print("First ten eigenvalues:", eigs[:10], "\n")
-        print("Sorted normed eigenvalues:", np.sort(np.real(np.multiply(eigs, np.conj(eigs)))), "\n")
-        n = 2  # input("How many eigenvalues are significant? (integer): ")
+        print("Sorted, normed eigenvalues:", np.sort(np.real(np.abs(eigs))), "\n")
+        n = input("How many eigenvalues are significant? (integer): ")
         try:
             n = int(n)
         except ValueError:
             print("That's not an integer!")
-            self.LaurenceMultiDimAnalysisRun(x0=x0, dt=dt, stabtol=stabtol)
+            return self.laurence_multi_dim_analysis_run(x0=x0, dt=dt, stabtol=stabtol)
 
-        # Get eigenvectors and K matrix
-        vs = [[vecs[:, i], eigs[i]] for i in range(self.dim)]
-        vs.sort(key=lambda item: np.conj(item[1])*item[1], reverse=True)
-        vs = [item[0] for item in vs[:n]]
+        # Get sorted eigenvalues, -vectors and K matrix
+        arranged = [[vecs[:, i], eigs[i]] for i in range(self.dim)]
+        arranged.sort(key=lambda item: np.conj(item[1])*item[1], reverse=True)
+        vs = [item[0] for item in arranged[:n]]
+        alphas = [item[1] for item in arranged[:n]]
+        cs = np.array([(0.5)**i for i in range(n)])  # guess
+        K = np.diag([sum(self.w[i, :]) for i in range(self.dim)])
 
-        cs = np.array([(-1)**i for i in range(n)])  # guess
-        K = np.diag([sum(self.W[i, :]) for i in range(self.dim)])
-
-        # Find c by minimizing the inner product between a1 and a2
-        res = minimize(lambda c_arr: calculate_a1a2(c_arr, w_t, eigs, vs), cs)
+        # Find 'c' vector by minimizing the inner product between a1 and a2
+        res = minimize(lambda c_arr: calculate_a1a2(c_arr=c_arr, w_t=w_t, alpha1=alphas[0], vs=vs), cs)
         c = res.x
-        print(c)
+        print(f'Chosen c array = {c}: {res.message} Eigenvector overlap = {calculate_a1a2(c, w_t, alphas[0], vs)}')
 
-        # Use minimizing c to calculate a vectors
+        # Use the minimizing 'c' vector to calculate 'a' vectors and betas
         a = [np.sum([c[i] * vs[i] for i in range(n)], axis=0) /
              np.sum([c[i]*np.dot(np.ones(self.dim), vs[i]) for i in range(n)])]
-        beta = [a[0] @ K @ np.transpose(a[0]) / (a[0] @ np.transpose(a[0]) * eigs[0])]
+        betas = [a[0] @ K @ np.transpose(a[0]) / (a[0] @ np.transpose(a[0]) * alphas[0])]
         for i in range(1, n):
-            a.append(np.dot(w_t, a[-1])/eigs[i-1])
-            beta.append(a[-1] @ K @ np.transpose(a[-1]) / (a[-1] @ np.transpose(a[-1]) * eigs[i]))
-
+            a.append(np.dot(w_t, a[-1])/alphas[i-1])
+            betas.append(a[-1] @ K @ np.transpose(a[-1]) / (a[-1] @ np.transpose(a[-1]) * alphas[i]))
+        print('alphas', alphas, '\nbetas', betas)
         # Let's integrate the reduced ODE!
-        func = lambda Rs: np.array([self.F(Rs[i]) + eigs[i]*self.G(beta[i]*Rs[i], Rs[i+1]) for i in range(n-1)] +
-                                   [self.F(Rs[-1]) + eigs[-1]*self.G(beta[-1]*Rs[-1], Rs[0])])
-        prediction = self.stabilityrun(func, dt, stabtol, np.array([a[i] @ x0 for i in range(n)]), debugging=2)[0]
+        func = lambda Rs: np.array([self.decay_func(Rs[i]) + alphas[i] * self.interact_func(betas[i] * Rs[i], Rs[i + 1]) for i in range(n - 1)] +
+                                   [self.decay_func(Rs[-1]) + alphas[-1] * self.interact_func(betas[-1] * Rs[-1], Rs[0])])
+        prediction = stability_run(func, dt, stabtol, np.array([a[i] @ x0 for i in range(n)]),
+                                        title=f"{n}D reduction", debugging=2)[0]
 
         # Integrate the original ODE
-        func = lambda arr: dxdt(tuple(arr), self.F, self.G, tuple(tuple(row) for row in self.W))
-        x = self.stabilityrun(func, dt, stabtol, x0, debugging=2)[0]
+        func = lambda arr: dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w))
+        x = stability_run(func, dt, stabtol, x0, title="Full simulation", debugging=2)[0]
         simulation_res = [a[i] @ x for i in range(n)]
 
-        return [simulation_res, prediction, a, beta]
+        return [simulation_res, prediction, a, alphas, betas]
+
 
 
 if __name__ == "__main__":
-    #-- LAURENCE ND ANALYSIS --#
-    w = np.array([[0.52829123, -0.12620005, 0.07649462, -0.51603925, 0.3324112],
-                   [-0.65911129, -0.2884593, 0.35157307, -0.61664797, -0.47923406],
-                   [-0.95658735, -0.99555071, 0.61247847, 0.57499545, -0.185355],
-                   [-0.63192054, -0.36443042, 0.76658192, -0.94645962, 0.85193479],
-                   [-0.41915602, -0.02816688, -0.39475975, -0.48100525, 0.8211069]])
+    # --- LAURENCE ND ANALYSIS --- #
+    # w = np.array([[0.52829123, -0.12620005, 0.07649462, -0.51603925, 0.3324112],
+    #               [-0.65911129, -0.2884593, 0.35157307, -0.61664797, -0.47923406],
+    #               [-0.95658735, -0.99555071, 0.61247847, 0.57499545, -0.185355],
+    #               [-0.63192054, -0.36443042, 0.76658192, -0.94645962, 0.85193479],
+    #               [-0.41915602, -0.02816688, -0.39475975, -0.48100525, 0.8211069]])
 
-    f = lambda x: -x**3
-    g = lambda x, y: (1-x)*y
+    net = Network()
+    net.gen_community([10, 10], [[0.5, 0.01], [0.01, 0.5]])
+    net.randomize_weights()
+    net.plot_graph()
+    input("hi")
 
-    model = Model(w, f, g)
-
-    res = model.LaurenceMultiDimAnalysisRun(x0=2*np.random.rand(w.shape[0]))
-    for r in res[:2]:
-        print(r)
+    const = 1/(1-exp(3))
 
 
+    def decay(x):
+        return -x
+
+
+    def interact(x, y):
+        return 1/(1+exp(3-y)) - const
+
+
+    model = Model(net.adj_matrix, decay, interact)
+
+    x0 = 5 * np.random.rand(w.shape[0]) + 5
+    dt = 1e-2
+    stabtol = 1e-5
+
+    res = model.laurence_multi_dim_analysis_run(dt=dt, stabtol=stabtol, x0=x0)
+    dec = 3
+    print(f"Error (act: {np.round(res[0], decimals=dec)} pred: {np.round(res[1], decimals=dec)}) = "
+          f"{np.round(np.linalg.norm(res[0] - res[1]), decimals=dec)}")
+
+    res = model.laurence_multi_dim_analysis_run(dt=dt, stabtol=stabtol, x0=x0)
+    print(f"Error (act: {np.round(res[0], decimals=dec)} pred: {np.round(res[1], decimals=dec)}) = "
+          f"{np.round(np.linalg.norm(res[0] - res[1]), decimals=dec)}")
+
+    cached_functions = [dx_dt, exp]
+    for func in cached_functions:
+        ci = func.cache_info()
+        print(f"{func.__name__} cache hits: {round(100 * ci.hits / (ci.hits + ci.misses))}%")
 
     ### Non-cooperative Networks ###
     # N = 15

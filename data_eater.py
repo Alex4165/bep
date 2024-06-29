@@ -4,42 +4,7 @@ import numpy as np
 import time
 from functools import lru_cache
 
-
-def rootfinder(f, interval, etol=1e-4, N=1000):
-    """Finds roots in the interval=[a,b] for function f by the bisection method in
-    N=1000 segments of the interval"""
-    xs = np.linspace(interval[0], interval[1], N)
-    left_bounds = []
-    roots = []
-
-    for i, x in enumerate(xs[:-1]):
-        if f(x) * f(xs[i+1]) < 0:
-            left_bounds.append(i)
-
-    for i in left_bounds:
-        x1, x2 = xs[i], xs[i+1]
-        zero = f(xs[i])
-
-        while abs(zero) > etol:
-            m = (x1+x2)/2
-            if f(x1) * f(m) < 0:
-                x2 = m
-                zero = f(x1)
-            elif f(m) * f(x2) < 0:
-                x1 = m
-                zero = f(x1)
-
-        roots.append(x1)
-
-    return roots
-
-
-def real(x):
-    if np.isreal(x):
-        return np.real(x)
-    else:
-        print(f"Uh oh! {x} is not real")
-        return np.absolute(x)
+from model import rootfinder, real, exp
 
 
 @lru_cache(maxsize=None, typed=False)
@@ -78,17 +43,17 @@ def kmax(A):
     return kmax
 
 
-def one_laurence(res, A, F, G):
+def one_laurence(res, adj_matrix, decay_func, interact_func):
     """Given a collection of systems, return a list of the one-dimensional
     Laurence reduction's predicted average in equilibrium and the weighting
     vector to retrieve the average"""
-    a, alpha, beta = reduce(A)
+    a, alpha, beta = reduce(adj_matrix)
     alpha, beta = real(alpha), real(beta)
     R_norms = []
     for i in range(len(res[1])):
-        f = lambda R: F(R, res[1][i], res[2][i]) + alpha * G(beta*R, R, res[1][i], res[2][i])
+        f = lambda R: decay_func(R, res[1][i], res[2][i]) + alpha * interact_func(beta * R, R, res[1][i], res[2][i])
         # (1 / (1 + np.exp(res[1][i] * (res[2][i] - R))) - 1 / (1 + np.exp(res[1][i] * res[2][i])))
-        roots = rootfinder(f, [-1, A.shape[0]])
+        roots = rootfinder(f, [-1, adj_matrix.shape[0]])
         R_norms.append(np.max(roots))  # Choose the largest root because 0 will always be one
     return R_norms, a
 
@@ -108,9 +73,12 @@ def reduce(A):
 
 if __name__ == "__main__":
     # Load in data
-    filename = "CowanWilsonstabilityresults1714722146.1482878"
+    filename = "data/CowanWilsonstabilityresults1719149668.7244217"
     with open(filename+".txt", "r") as read_file:
         res = json.load(read_file)
+
+    for lst in res:
+        print(lst)
     A = np.array(res[0])
 
     # Find rho(A) & kmax(A)
@@ -118,7 +86,8 @@ if __name__ == "__main__":
     kmax = kmax(A)
 
     # # Find 1D reduction: R and solve its equation
-    R_norms = one_laurence(res)
+    R_norms = one_laurence(res, adj_matrix=A, decay_func=lambda x, p1, p2: -x,
+                           interact_func=lambda x, y, p1, p2: 1/(1+exp(p1*(p2-y))))
 
     # Find 2D reduction  (Appendix C of Laurence)
     eigs, vecs = np.linalg.eig(np.transpose(A))

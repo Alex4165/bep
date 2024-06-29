@@ -31,8 +31,8 @@ accuracy = []
 t1 = time.time()
 for index in range(2*N):
     av_deg.append(np.transpose(np.ones(N)) @ w @ np.ones(N) / N)
-    res = model.randomStabilityAnalysis(p1p=[1, 10, STEPS], p2p=[1, 10, STEPS], dt=1e-2)
-    R_norms, a = one_laurence(res, A=w, F=F, G=G)
+    res = model.random_stability_analysis(p1p=[1, 10, STEPS], p2p=[1, 10, STEPS], dt=1e-2)
+    R_norms, a = one_laurence(res, adj_matrix=w, decay_func=F, interact_func=G)
 
     count = 0
     for i in range(STEPS**2):
