@@ -113,20 +113,21 @@ def calculate_a1a2(c_arr, w_t, alpha1, vs):
 
 
 def stability_run(func, dt, stabtol, x0, debugging=0, title="Stability") -> (list, float):
-    """Calculates a network until stability has been reached. Debugging=1 full debug, =2 one plot.\n
-    Returns the stable solution vector and the index at stability"""
-    normF = 1
+    """Calculates a network until stability has been reached. \n
+    If stabtol is set to None, then the first 50 seconds are calculated regardless.\n
+    Debugging=0 no plots, =1 full debug, =2 only the final plot.\n
+    Returns the stable solution vector and the index at stability and a list of xs over time."""
+    normF = 100
     x = np.copy(x0)
 
-    if debugging > 0:
-        xs = [np.copy(x)]
+    xs = [np.copy(x)]
 
     i = 1
-    while normF > stabtol and i < 50/dt:
+    while (stabtol is not None and normF > stabtol and i < 50/dt) or (stabtol is None and i < 50/dt):
         x += RK4step(dt, func, x)
         normF = np.linalg.norm(func(x))
+        xs.append(np.copy(x))
         if debugging > 0:
-            xs.append(np.copy(x))
             if debugging == 1 and i % (10/dt) == 0:  # plot every number of computed seconds
                 plt.plot([dt * n for n in range(len(xs))], xs)
                 plt.show()
@@ -134,26 +135,45 @@ def stability_run(func, dt, stabtol, x0, debugging=0, title="Stability") -> (lis
         i += 1
 
     if debugging > 0:
-        if True in np.iscomplex(xs):
-            plt.plot([dt * n for n in range(len(xs))], np.abs(xs))
-            plt.title(title)
-            plt.xlabel("Time (s)")
-            plt.ylabel("Magnitude")
-            plt.show()
+        plot_solution(dt, title, xs)
 
-            plt.plot([dt * n for n in range(len(xs))], np.angle(xs))
+    return x, i, xs
+
+
+def plot_solution(dt, title, xs, saving=False):
+    if True in np.iscomplex(xs):
+        plt.plot([dt * n for n in range(len(xs))], np.abs(xs))
+        plt.title(title)
+        plt.xlabel("Time (s)")
+        plt.ylabel("Magnitude")
+        plt.show()
+
+        plt.plot([dt * n for n in range(len(xs))], np.angle(xs))
+        plt.title(title)
+        plt.xlabel("Time (s)")
+        plt.ylabel("Phase (radians)")
+        plt.show()
+    else:
+        plt.plot([dt * n for n in range(len(xs))], xs)
+        plt.xlabel("Time (s)")
+        plt.ylabel("Activity")
+        if not saving:
             plt.title(title)
-            plt.xlabel("Time (s)")
-            plt.ylabel("Phase (radians)")
-            plt.show()
         else:
-            plt.plot([dt * n for n in range(len(xs))], xs)
-            plt.title(title)
-            plt.xlabel("Time (s)")
-            plt.ylabel("Activity")
-            plt.show()
+            plt.savefig("data/"+title+".eps")
 
-    return x, i
+        plt.show()
+
+
+def get_cached_performance():
+    """Prints the cache hit ratio for each cached function"""
+    cached_functions = [dx_dt, exp]
+    for func in cached_functions:
+        ci = func.cache_info()
+        if ci.hits+ci.misses > 0:
+            print(f"{func.__name__} cache hits: {round(100 * ci.hits / (ci.hits + ci.misses))}%")
+        else:
+            print(f"{func.__name__} was never called")
 
 
 @dataclass
@@ -177,17 +197,17 @@ class Network:
 
     def gen_random(self, size, p):
         """Generate an Erdos-Renyi random graph with connection probability p."""
-        self.graph = nx.erdos_renyi_graph(size, p, directed=True)
+        self.graph = nx.erdos_renyi_graph(size, p)
         self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
-        self.size = self.graph.amount_of_nodes
+        self.size = self.graph.number_of_nodes()
 
     def gen_small_world(self, size, k, p):
         """Generate a Watts-Strogatz random graph.
-        k is the amount of nearest neighbors first connected to.
+        k is the max distance of nearest neighbors first connected to.
         p is the rewiring probability."""
         self.graph = nx.watts_strogatz_graph(size, k, p)
         self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
-        self.size = self.graph.amount_of_nodes
+        self.size = self.graph.number_of_nodes()
 
     def gen_community(self, sizes: List[int], probabilities: List[List[float]] = None):
         """Generate a community graph.
@@ -205,24 +225,33 @@ class Network:
         Creates a hub structure with predefined minimum node degree."""
         self.graph = nx.barabasi_albert_graph(size, minimum_deg)
         self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
-        self.size = self.graph.amount_of_nodes
+        self.size = self.graph.number_of_nodes()
 
-    def plot_graph(self):
+    def plot_graph(self, title=" ", weighted=False, saving=False):
         """Plot graph"""
+        fig, ax = plt.subplots()
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
         pos = nx.spring_layout(self.graph, k=1 / self.size ** 0.1)
-        for u, v, d in self.graph.edges(data=True):
-            d['weight'] = self.adj_matrix[u, v]
+        if weighted:
+            for u, v, d in self.graph.edges(data=True):
+                d['weight'] = self.adj_matrix[u, v]
 
-        edges, weights = zip(*nx.get_edge_attributes(self.graph, 'weight').items())
+            edges, weights = zip(*nx.get_edge_attributes(self.graph, 'weight').items())
 
-        nx.draw(self.graph, pos, node_color='b', edgelist=edges, edge_color=weights,
-                width=3, edge_cmap=plt.cm.Blues)
+            nx.draw(self.graph, pos, node_color='b', edgelist=edges, edge_color=weights,
+                    width=3, edge_cmap=plt.cm.Blues)
+        else:
+            nx.draw_networkx(self.graph, pos, with_labels=False, ax=ax)
+        if not saving:
+            plt.title(title)
+        else:
+            plt.savefig("data/"+title+".eps")
         plt.show()
 
-    def randomize_weights(self, factor=2):
-        """Reweight connections by a uniform random value between 0 and factor."""
+    def randomize_weights(self, factor=lambda x: 2*x-1):
+        """Reweight the network with factor a function of a uniform random variable between 0 and 1."""
         if self.adj_matrix is not None:
-            random_adjustments = factor*np.random.random_sample((self.size, self.size))
+            random_adjustments = factor(np.random.random_sample((self.size, self.size)))
             self.adj_matrix = np.multiply(self.adj_matrix, random_adjustments)
         else:
             raise ValueError("No network to speak of!")
@@ -240,6 +269,11 @@ class Model:
         """Compute N iterations with initial condition x0, from t=0 to tf, with precision dt"""
         self.solution = solve_ivp(lambda t, x: dx_dt(x, self.decay_func, self.interact_func, self.w), t_span=(0, tf),
                                   y0=x0)
+
+    def stability_run(self, dt, stabtol, x0, debugging=0, title="Stability Run"):
+        """Run the stability analysis for the model"""
+        func = lambda arr: dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w))
+        return stability_run(func, dt, stabtol, x0, debugging, title=title)
 
     def random_stability_analysis(self, p1p, p2p, dt, stabtol=1e-5):
         """Run an analysis of stable solutions with random initial vector for different input parameters"""
@@ -353,23 +387,17 @@ class Model:
         x = stability_run(func, dt, stabtol, x0, title="Full simulation", debugging=2)[0]
         simulation_res = [a[i] @ x for i in range(n)]
 
+        dec = 3
+        print(f"Error (act: {np.round(simulation_res, decimals=dec)} pred: {np.round(prediction, decimals=dec)}) = "
+              f"{np.round(np.linalg.norm(simulation_res-prediction), decimals=dec)}")
+
         return [simulation_res, prediction, a, alphas, betas]
 
 
-
 if __name__ == "__main__":
-    # --- LAURENCE ND ANALYSIS --- #
-    # w = np.array([[0.52829123, -0.12620005, 0.07649462, -0.51603925, 0.3324112],
-    #               [-0.65911129, -0.2884593, 0.35157307, -0.61664797, -0.47923406],
-    #               [-0.95658735, -0.99555071, 0.61247847, 0.57499545, -0.185355],
-    #               [-0.63192054, -0.36443042, 0.76658192, -0.94645962, 0.85193479],
-    #               [-0.41915602, -0.02816688, -0.39475975, -0.48100525, 0.8211069]])
-
     net = Network()
-    net.gen_community([10, 10], [[0.5, 0.01], [0.01, 0.5]])
+    net.gen_community([10, 10, 10])
     net.randomize_weights()
-    net.plot_graph()
-    input("hi")
 
     const = 1/(1-exp(3))
 
@@ -382,25 +410,16 @@ if __name__ == "__main__":
         return 1/(1+exp(3-y)) - const
 
 
-    model = Model(net.adj_matrix, decay, interact)
+    w = net.adj_matrix
+    model = Model(w, decay, interact)
 
     x0 = 5 * np.random.rand(w.shape[0]) + 5
     dt = 1e-2
     stabtol = 1e-5
 
     res = model.laurence_multi_dim_analysis_run(dt=dt, stabtol=stabtol, x0=x0)
-    dec = 3
-    print(f"Error (act: {np.round(res[0], decimals=dec)} pred: {np.round(res[1], decimals=dec)}) = "
-          f"{np.round(np.linalg.norm(res[0] - res[1]), decimals=dec)}")
 
     res = model.laurence_multi_dim_analysis_run(dt=dt, stabtol=stabtol, x0=x0)
-    print(f"Error (act: {np.round(res[0], decimals=dec)} pred: {np.round(res[1], decimals=dec)}) = "
-          f"{np.round(np.linalg.norm(res[0] - res[1]), decimals=dec)}")
-
-    cached_functions = [dx_dt, exp]
-    for func in cached_functions:
-        ci = func.cache_info()
-        print(f"{func.__name__} cache hits: {round(100 * ci.hits / (ci.hits + ci.misses))}%")
 
     ### Non-cooperative Networks ###
     # N = 15

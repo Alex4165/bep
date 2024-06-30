@@ -8,17 +8,10 @@ import time
 
 N = 4
 STEPS = 4
-s = nx.utils.powerlaw_sequence(N, 2)
-G = nx.expected_degree_graph(s, selfloops=False)
 
-w = nx.adjacency_matrix(G).toarray()
+
 kmax = kmax(w)
 rho = rho(w)
-
-# draw and show graph
-pos = nx.spring_layout(G, k=N**-0.1)
-nx.draw_networkx(G, pos)
-plt.show()
 
 F = lambda x, tau, mu: -x
 G = lambda x, y, tau, mu: 1/(1+np.exp(tau*(mu-y)))
