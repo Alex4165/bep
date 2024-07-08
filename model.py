@@ -160,7 +160,7 @@ def plot_solution(dt, title, xs, saving=False):
         if not saving:
             plt.title(title)
         else:
-            plt.savefig("data/"+title+".eps")
+            plt.savefig("data/"+title+".pdf")
 
         plt.show()
 
@@ -245,7 +245,7 @@ class Network:
         if not saving:
             plt.title(title)
         else:
-            plt.savefig("data/"+title+".eps")
+            plt.savefig("data/"+title+".pdf")
         plt.show()
 
     def randomize_weights(self, factor=lambda x: 2*x-1):
