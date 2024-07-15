@@ -1,4 +1,6 @@
-from model import Model, Network, plot_solution, exp
+from model import Model
+from network_class import Network
+from auxiliary_functions import exp, plot_solution
 import numpy as np
 
 # --- Section 4.1: What kind of solutions do we get from noncooperative networks? --- #

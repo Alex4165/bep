@@ -1,4 +1,5 @@
-from model import Model, RK4step, dx_dt
+from model import Model
+from auxiliary_functions import RK4step, dx_dt
 from data_eater import reduce
 
 import numpy as np

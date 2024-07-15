@@ -1,11 +1,10 @@
 import json
 import matplotlib.pyplot as plt
 import numpy as np
-import time
 from functools import lru_cache
 from typing import Callable
 
-from model import rootfinder, real, exp
+from auxiliary_functions import real, rootfinder, exp, rho, kmax
 
 
 @lru_cache(maxsize=None, typed=False)
@@ -27,24 +26,6 @@ def lambda_star(tau, mu, function: Callable[[float, float], float] = None, l0=1e
         return lambda_star(tau, mu, l0=l0, l1=lmbda)
     else:
         return lambda_star(tau, mu, l0=lmbda, l1=l1)
-
-
-def rho(A):
-    eigs, vecs = np.linalg.eig(A)
-    i = np.argmax(np.array([np.real(e) for e in eigs]))
-    return np.real(eigs[i])
-
-
-def kmax(A):
-    kmax = 0
-    for i in range(A.shape[0]):
-        degs = np.transpose(np.dot(A, np.ones(A.shape[0])))
-        i = np.argmin(degs)
-        if degs[i] >= kmax:
-            kmax = degs[i]
-        A = np.delete(A, i, 0)
-        A = np.delete(A, i, 1)
-    return kmax
 
 
 def one_laurence(res, adj_matrix, decay_func, interact_func):

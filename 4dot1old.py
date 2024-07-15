@@ -1,6 +1,8 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
-from model import Model, Network, get_cached_performance, plot_solution
+from model import Model
+from network_class import Network
+from auxiliary_functions import plot_solution, get_cached_performance
 import numpy as np
 import os
 

@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from model import Model, Network, rootfinder
-from data_eater import kmax, rho
+from model import Model
+from network_class import Network
+from auxiliary_functions import rootfinder, rho, kmax
 from concurrent.futures import ThreadPoolExecutor
 import os
 from typing import List

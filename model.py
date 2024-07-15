@@ -2,14 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Callable, List
 from scipy.integrate import solve_ivp
-from scipy.optimize import minimize, root
-import scipy.io
+from scipy.optimize import minimize
 import json
 import time
-import networkx as nx
-import cProfile
-from functools import lru_cache
 from dataclasses import dataclass, field
+
+from auxiliary_functions import real, RK4step, rootfinder, exp, plot_solution, dx_dt
+from network_class import Network
 
 # ECB_link = scipy.io.loadmat('ECB_link.mat')["outputs"]
 # ECB_node = scipy.io.loadmat('ECB_node.mat')["outputs"]
@@ -19,87 +18,6 @@ from dataclasses import dataclass, field
 # print(ECB_node.shape)
 
 TALKING = True
-
-
-def real(x):
-    if np.isreal(x):
-        return np.real(x)
-    else:
-        print(f"Uh oh! {x} is not real")
-        return np.real(x)
-
-
-def RK4step(dt, func, x):
-    """Returns one Runge-Kutta 4 integration step
-     Note:  assumes f is independent of time!
-            returns dx, not x+dx"""
-    k1 = func(x)
-    k2 = func(x + dt * k1 / 2)
-    k3 = func(x + dt * k2 / 2)
-    k4 = func(x + dt * k3)
-    return (k1 + 2 * k2 + 2 * k3 + k4) * dt / 6
-
-
-def rootfinder(f, interval, etol=1e-4, N=1000):
-    """Finds roots in the interval=[a,b] for function f by the bisection method
-    after splitting the interval into N segments of the interval"""
-    xs = np.linspace(interval[0], interval[1], N)
-    left_bounds = []
-    roots = []
-
-    for i, x in enumerate(xs[:-1]):
-        if f(x) * f(xs[i+1]) < 0:
-            left_bounds.append(i)
-
-    for i in left_bounds:
-        x1, x2 = xs[i], xs[i+1]
-        zero = f(xs[i])
-
-        while abs(zero) > etol:
-            m = (x1+x2)/2
-            if f(x1) * f(m) < 0:
-                x2 = m
-                zero = f(x1)
-            elif f(m) * f(x2) < 0:
-                x1 = m
-                zero = f(x1)
-
-        roots.append(x1)
-
-    return roots
-
-
-@lru_cache(maxsize=None)
-def dx_dt(x: tuple, F: Callable[[float], float], G: Callable[[float, float], float], W: tuple):
-    """The N-dimensional function determining the derivative of x."""
-    f = np.zeros(len(x))
-    for i, xi in enumerate(x):
-        f[i] = F(xi)
-        f[i] += np.sum([W[i][j] * G(x[i], x[j]) for j in range(len(x))])
-    return f
-
-
-@lru_cache(maxsize=None)
-def exp(x):
-    return np.exp(x)
-
-
-def is_eig_vec(vec, matrix):
-    prod = matrix @ vec
-
-    # Check for zeroes in vec
-    for i in range(len(vec)):
-        if vec[i] == 0 and prod[i] != 0:
-            return False
-
-    res = []
-    for i in range(len(vec)):
-        if vec[i] != 0:
-            res.append(prod[i] / vec[i])
-            if len(res) > 1 and np.absolute(res[-1] - res[-2]) > 1e-4:
-                return False
-
-    return True
 
 
 def calculate_a1a2(c_arr, w_t, alpha1, vs):
@@ -142,42 +60,6 @@ def stability_run(func: Callable[[List[float]], List[float]], dt, stabtol, x0, d
     return x, i, xs
 
 
-def plot_solution(dt, title, xs, saving=False):
-    if True in np.iscomplex(xs):
-        plt.plot([dt * n for n in range(len(xs))], np.abs(xs))
-        plt.title(title)
-        plt.xlabel("Time (s)")
-        plt.ylabel("Magnitude")
-        plt.show()
-
-        plt.plot([dt * n for n in range(len(xs))], np.angle(xs))
-        plt.title(title)
-        plt.xlabel("Time (s)")
-        plt.ylabel("Phase (radians)")
-        plt.show()
-    else:
-        plt.plot([dt * n for n in range(len(xs))], xs)
-        plt.xlabel("Time (s)")
-        plt.ylabel("Activity")
-        if not saving:
-            plt.title(title)
-        else:
-            plt.savefig("data/"+title+".pdf")
-
-        plt.show()
-
-
-def get_cached_performance():
-    """Prints the cache hit ratio for each cached function"""
-    cached_functions = [dx_dt, exp]
-    for func in cached_functions:
-        ci = func.cache_info()
-        if ci.hits+ci.misses > 0:
-            print(f"{func.__name__} cache hits: {round(100 * ci.hits / (ci.hits + ci.misses))}%")
-        else:
-            print(f"{func.__name__} was never called")
-
-
 @dataclass
 class Result:
     """A dataclass for various types of results, from a random stability analysis to a laurence analysis"""
@@ -192,74 +74,6 @@ class Result:
     a_vectors: List[np.ndarray] = field(default_factory=list)
     predictions: List[np.ndarray] = field(default_factory=list)
     simulations: List[np.ndarray] = field(default_factory=list)
-
-
-class Network:
-    def __init__(self):
-        self.adj_matrix = None
-        self.graph = None
-        self.size = 0
-
-    def gen_random(self, size, p):
-        """Generate an Erdos-Renyi random graph with connection probability p."""
-        self.graph = nx.erdos_renyi_graph(size, p)
-        self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
-        self.size = self.graph.number_of_nodes()
-
-    def gen_small_world(self, size, k, p):
-        """Generate a Watts-Strogatz random graph.
-        k is the max distance of nearest neighbors first connected to.
-        p is the rewiring probability."""
-        self.graph = nx.watts_strogatz_graph(size, k, p)
-        self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
-        self.size = self.graph.number_of_nodes()
-
-    def gen_community(self, sizes: List[int], probabilities: List[List[float]] = None):
-        """Generate a community graph.
-        sizes is a list of the size of each community.
-        probabilities is a list of lists of probabilities such that (r,s) gives the
-        probability of community r attaching to s. If None, random values are taken."""
-        if probabilities is None:
-            probabilities = [[np.random.rand() for s in range(len(sizes))] for r in range(len(sizes))]
-        self.graph = nx.stochastic_block_model(sizes=sizes, p=probabilities, directed=True)
-        self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
-        self.size = self.graph.number_of_nodes()
-
-    def gen_hub(self, size, minimum_deg):
-        """Generate Barabasi-Albert graph which attaches new nodes preferentially to high degree nodes.
-        Creates a hub structure with predefined minimum node degree."""
-        self.graph = nx.barabasi_albert_graph(size, minimum_deg)
-        self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
-        self.size = self.graph.number_of_nodes()
-
-    def plot_graph(self, title=" ", weighted=False, saving=False):
-        """Plot graph"""
-        fig, ax = plt.subplots()
-        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
-        pos = nx.spring_layout(self.graph, k=1 / self.size ** 0.1)
-        if weighted:
-            for u, v, d in self.graph.edges(data=True):
-                d['weight'] = self.adj_matrix[u, v]
-
-            edges, weights = zip(*nx.get_edge_attributes(self.graph, 'weight').items())
-
-            nx.draw(self.graph, pos, node_color='b', edgelist=edges, edge_color=weights,
-                    width=3, edge_cmap=plt.cm.Blues)
-        else:
-            nx.draw_networkx(self.graph, pos, with_labels=False, ax=ax)
-        if not saving:
-            plt.title(title)
-        else:
-            plt.savefig("data/"+title+".pdf")
-        plt.show()
-
-    def randomize_weights(self, factor=lambda x: 2*x-1):
-        """Reweight the network with factor a function of a uniform random variable between 0 and 1."""
-        if self.adj_matrix is not None:
-            random_adjustments = factor(np.random.random_sample((self.size, self.size)))
-            self.adj_matrix = np.multiply(self.adj_matrix, random_adjustments)
-        else:
-            raise ValueError("No network to speak of!")
 
 
 class Model:
@@ -403,7 +217,7 @@ if __name__ == "__main__":
     net.gen_community([10, 10, 10])
     net.randomize_weights()
 
-    const = 1/(1-exp(3))
+    const = 1/(1 - exp(3))
 
 
     def decay(x):
@@ -411,7 +225,7 @@ if __name__ == "__main__":
 
 
     def interact(x, y):
-        return 1/(1+exp(3-y)) - const
+        return 1/(1 + exp(3 - y)) - const
 
 
     w = net.adj_matrix

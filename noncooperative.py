@@ -1,5 +1,6 @@
 from model import Model
-from data_eater import lambda_star, one_laurence, kmax, rho
+from data_eater import lambda_star, one_laurence
+from auxiliary_functions import rho, kmax
 
 import numpy as np
 import networkx as nx
