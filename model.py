@@ -41,8 +41,8 @@ def RK4step(dt, func, x):
 
 
 def rootfinder(f, interval, etol=1e-4, N=1000):
-    """Finds roots in the interval=[a,b] for function f by the bisection method in
-    N=1000 segments of the interval"""
+    """Finds roots in the interval=[a,b] for function f by the bisection method
+    after splitting the interval into N segments of the interval"""
     xs = np.linspace(interval[0], interval[1], N)
     left_bounds = []
     roots = []
@@ -112,18 +112,20 @@ def calculate_a1a2(c_arr, w_t, alpha1, vs):
     return np.abs(a1_inner_a2)
 
 
-def stability_run(func, dt, stabtol, x0, debugging=0, title="Stability") -> (list, float):
+def stability_run(func: Callable[[List[float]], List[float]], dt, stabtol, x0, debugging=0, title="Stability", max_run_time=50) -> (list, float):
     """Calculates a network until stability has been reached. \n
     If stabtol is set to None, then the first 50 seconds are calculated regardless.\n
     Debugging=0 no plots, =1 full debug, =2 only the final plot.\n
     Returns the stable solution vector and the index at stability and a list of xs over time."""
-    normF = 100
+    normF = 100  # Some large number
     x = np.copy(x0)
 
     xs = [np.copy(x)]
 
     i = 1
-    while (stabtol is not None and normF > stabtol and i < 50/dt) or (stabtol is None and i < 50/dt):
+    # If stabtol is not given, we run for a fixed time, else we run till the norm of the derivative is less than stabtol
+    while ((stabtol is not None and normF > stabtol and i < max_run_time/dt)
+           or (stabtol is None and i < max_run_time/dt)):
         x += RK4step(dt, func, x)
         normF = np.linalg.norm(func(x))
         xs.append(np.copy(x))
@@ -178,10 +180,13 @@ def get_cached_performance():
 
 @dataclass
 class Result:
+    """A dataclass for various types of results, from a random stability analysis to a laurence analysis"""
     w_matrix: np.ndarray
+    # TODO: remove hardcode that assumes 2 parameters
     parameter1_list: List[float] = field(default_factory=list)
     parameter2_list: List[float] = field(default_factory=list)
     stable_x_list: List[np.ndarray] = field(default_factory=list)
+
     alphas: List[np.ndarray] = field(default_factory=list)
     betas: List[np.ndarray] = field(default_factory=list)
     a_vectors: List[np.ndarray] = field(default_factory=list)
@@ -275,7 +280,7 @@ class Model:
         func = lambda arr: dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w))
         return stability_run(func, dt, stabtol, x0, debugging, title=title)
 
-    def random_stability_analysis(self, p1p, p2p, dt, stabtol=1e-5):
+    def random_stability_analysis(self, p1p, p2p, dt, stabtol=1e-5, max_run_time=50):
         """Run an analysis of stable solutions with random initial vector for different input parameters"""
         p1s = np.linspace(p1p[0], p1p[1], p1p[2])  # tau
         p2s = np.linspace(p2p[0], p2p[1], p2p[2])  # mu
@@ -291,7 +296,7 @@ class Model:
                 x = np.random.rand(self.dim)*self.dim+self.dim
 
                 func = lambda arr: dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w))
-                x = stability_run(func=func, dt=dt, stabtol=stabtol, x0=x, debugging=False)[0]
+                x = stability_run(func=func, dt=dt, stabtol=stabtol, x0=x, debugging=False, max_run_time=max_run_time)[0]
 
                 result.parameter1_list.append(p1)
                 result.parameter2_list.append(p2)
@@ -299,14 +304,11 @@ class Model:
 
             if TALKING and __name__ == "__main__":
                 print(f"Completed p1={round(p1,3)}. Total time taken: {round((time.time()-t1) // 60)} min and {round((time.time()-t1) % 60)} s")
-                # t1 = time.time()
 
-        # results = np.transpose(results).tolist()
-        # results.insert(0, self.w.tolist())  # results = [w, p1, p2, mean(x), norm(x)]
-        results = [result.w_matrix.tolist(), result.parameter1_list, result.parameter2_list,
-                   np.mean(result.stable_x_list, axis=1).tolist(),
-                   np.linalg.norm(result.stable_x_list, axis=1).tolist()]
         if __name__ == "__main__":
+            results = [result.w_matrix.tolist(), result.parameter1_list, result.parameter2_list,
+                       np.mean(result.stable_x_list, axis=1).tolist(),
+                       np.linalg.norm(result.stable_x_list, axis=1).tolist()]
             with open('data/CowanWilsonstabilityresults'+str(time.time())+'.txt', 'w') as filehandle:
                 json.dump(results, filehandle)
 
@@ -339,7 +341,7 @@ class Model:
 
         return [alpha, simulation, prediction2, x]  # pass x to use as x0 next run (speeds up running time)
 
-    def laurence_multi_dim_analysis_run(self, x0, dt=1e-2, stabtol=1e-3):
+    def laurence_multi_dim_analysis_run(self, x0, dt=1e-2, stabtol=1e-3, max_run_time=50):
         """Returns simulation result, prediction with multidimensional reduction, list of 'a' vectors, alphas and
         beta values used (in order of eigenvalue norm descending)."""
         w_t = np.transpose(self.w)
@@ -353,7 +355,7 @@ class Model:
             n = int(n)
         except ValueError:
             print("That's not an integer!")
-            return self.laurence_multi_dim_analysis_run(x0=x0, dt=dt, stabtol=stabtol)
+            return self.laurence_multi_dim_analysis_run(x0=x0, dt=dt, stabtol=stabtol, max_run_time=max_run_time)
 
         # Get sorted eigenvalues, -vectors and K matrix
         arranged = [[vecs[:, i], eigs[i]] for i in range(self.dim)]
@@ -376,15 +378,17 @@ class Model:
             a.append(np.dot(w_t, a[-1])/alphas[i-1])
             betas.append(a[-1] @ K @ np.transpose(a[-1]) / (a[-1] @ np.transpose(a[-1]) * alphas[i]))
         print('alphas', alphas, '\nbetas', betas)
+
         # Let's integrate the reduced ODE!
-        func = lambda Rs: np.array([self.decay_func(Rs[i]) + alphas[i] * self.interact_func(betas[i] * Rs[i], Rs[i + 1]) for i in range(n - 1)] +
+        func = lambda Rs: np.array([self.decay_func(Rs[i]) + alphas[i] *
+                                    self.interact_func(betas[i] * Rs[i], Rs[i + 1]) for i in range(n - 1)] +
                                    [self.decay_func(Rs[-1]) + alphas[-1] * self.interact_func(betas[-1] * Rs[-1], Rs[0])])
         prediction = stability_run(func, dt, stabtol, np.array([a[i] @ x0 for i in range(n)]),
-                                        title=f"{n}D reduction", debugging=2)[0]
+                                   title=f"{n}D reduction", debugging=2, max_run_time=max_run_time)[0]
 
         # Integrate the original ODE
         func = lambda arr: dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w))
-        x = stability_run(func, dt, stabtol, x0, title="Full simulation", debugging=2)[0]
+        x = stability_run(func, dt, stabtol, x0, title="Full simulation", debugging=2, max_run_time=max_run_time)[0]
         simulation_res = [a[i] @ x for i in range(n)]
 
         dec = 3

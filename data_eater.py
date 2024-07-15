@@ -3,22 +3,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 import time
 from functools import lru_cache
+from typing import Callable
 
 from model import rootfinder, real, exp
 
 
 @lru_cache(maxsize=None, typed=False)
-def lambda_star(tau, mu, l0=1e-3, l1=1e3, etol=1e-2):
+def lambda_star(tau, mu, function: Callable[[float, float], float] = None, l0=1e-3, l1=2e3, etol=1e-2):
     """Given mu and tau finds smallest lambda s.t. a nonzero solution exists"""
     lmbda = (l0+l1)/2
 
     if l1 - l0 < etol:
         return lmbda
 
-    f = lambda x: -x + lmbda/(1+np.exp(tau*(mu-x))) - lmbda/(1+np.exp(tau*mu))
-    # f = lambda x: -mu*x + lmbda*x**tau/(1+x**tau)
+    if function is None:
+        f = lambda x: -x + lmbda/(1+np.exp(tau*(mu-x))) - lmbda/(1+np.exp(tau*mu))
+        # f = lambda x: -mu*x + lmbda*x**tau/(1+x**tau)
+    else:
+        f = lambda x: function(x, tau, mu, lmbda)
 
-    zeros = rootfinder(f, [-0.1, 2*l1], etol=etol)
+    zeros = rootfinder(f, [-0.1, l1], etol=etol)
     if len([zero for zero in zeros if zero > etol]) > 0:
         return lambda_star(tau, mu, l0=l0, l1=lmbda)
     else:
