@@ -30,7 +30,8 @@ def calculate_a1a2(c_arr, w_t, alpha1, vs):
     return np.abs(a1_inner_a2)
 
 
-def stability_run(func: Callable[[List[float]], List[float]], dt, stabtol, x0, debugging=0, title="Stability", max_run_time=50) -> (list, float):
+def stability_run(func: Callable[[List[float]], List[float]], dt, stabtol, x0, debugging=0, title="Stability",
+                  max_run_time=50) -> (list[float], int, list[list[float]]):
     """Calculates a network until stability has been reached. \n
     If stabtol is set to None, then the first 50 seconds are calculated regardless.\n
     Debugging=0 no plots, =1 full debug, =2 only the final plot.\n
@@ -56,6 +57,7 @@ def stability_run(func: Callable[[List[float]], List[float]], dt, stabtol, x0, d
 
     if debugging > 0:
         plot_solution(dt, title, xs)
+        time.sleep(1)
 
     return x, i, xs
 

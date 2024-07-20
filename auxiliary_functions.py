@@ -146,6 +146,7 @@ def get_cached_performance():
                   f" ({ci.hits+ci.misses} calls)")
         else:
             print(f"{func.__name__} was never called")
+        func.cache_clear()
     print()
 
 
@@ -161,10 +162,9 @@ def dx_dt(x: tuple, F: Callable[[float], float], G: Callable[[float, float], flo
 
 def format_time_elapsed(elapsed_time):
     if elapsed_time < 5:
-        return (f"{round(elapsed_time // 60)} min "
-                f"{round(np.floor(elapsed_time % 60))} s"
-                f"{round(1000*(elapsed_time % 60 - np.floor(elapsed_time % 60)))} ms"
-                )
+        return f"{round(elapsed_time, 3)} s "
+    return (f"{round(elapsed_time // 60)} min "
+            f"{round(elapsed_time % 60)} s")
 
 
 @lru_cache(maxsize=None, typed=False)
