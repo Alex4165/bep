@@ -31,24 +31,27 @@ def rootfinder(f, interval, etol=1e-2, N=1000, do_initial_search=True, speak=Fal
     if speak:
         print("Hi! I'm gonna do my best for you :)")
     roots = []
+    t0 = time.time()
 
     if do_initial_search:
         xs = np.linspace(interval[0], interval[1], N)
         left_bounds = []
 
-        t0 = time.time()
         t1 = t0
-        for i, x in enumerate(xs[:-1]):
+        y1 = f(xs[0])
+        for i in range(1, len(xs)):
             if time.time() - t1 > 30 and speak:
                 print(f"Still working on it! {round(100*(i+1)/len(xs))}% done. "
                       f"Takes {(time.time()-t0)/(2*(i+1))} s per call so "
                       f"around {(time.time()-t0)/(i+1)*(len(xs)-i-1)} s left.")
                 t1 = time.time()
-            if f(x) * f(xs[i+1]) < 0:
-                left_bounds.append(i)
+            y2 = f(xs[i])
+            if y1 * y2 < 0:
+                left_bounds.append(i-1)
+            y1 = y2
 
         if speak:
-            print(f"Took me {time.time()-t0} seconds to find the {len(left_bounds)} locations of zeroes.")
+            print(f"Took me {time.time()-t0} seconds to find the location of {len(left_bounds)} zero(s).")
     else:
         left_bounds = [0]
         xs = interval
@@ -56,28 +59,32 @@ def rootfinder(f, interval, etol=1e-2, N=1000, do_initial_search=True, speak=Fal
     for i in left_bounds:
         x1, x2 = xs[i], xs[i+1]
         zero = f(xs[i])
+        best_zero = zero
+        best_guess = x1
 
-        while abs(zero) > etol:
+        while abs(best_zero) > etol:
             if speak:
-                print(f"my best guess f({(x1+x2)/2})={zero}")
-                print(f"my other guesses: {f(x1)} {f(x2)}")
+                print(f"my best guess f({best_guess})={best_zero}")
                 print(f"my accuracy: {x2-x1}\n")
 
             m = (x1+x2)/2
-            if f(x1) * f(m) < 0:
+            y1, ym, y2 = f(x1), f(m), f(x2)
+            if y1 * ym < 0:
                 x2 = m
-                zero = f(x1)
-            elif f(m) * f(x2) < 0:
+            elif ym * y2 < 0:
                 x1 = m
-                zero = f(x1)
-            else:
-                # Couldn't find the zero crossing
-                left_zeroes = rootfinder(f, [x1, m], etol, N, do_initial_search, speak)
-                right_zeroes = rootfinder(f, [m, x2], etol, N, do_initial_search, speak)
-                return left_zeroes + right_zeroes
 
-        roots.append(x1)
+            # Computationally inexpensive way to find the best zero earlier
+            k = np.argmin([np.abs(y1), np.abs(ym), np.abs(y2)])
+            best_zero = [y1, ym, y2][k]
+            best_guess = [x1, m, x2][k]
 
+        roots.append(best_guess)
+        if speak:
+            print("Found a zero at", best_guess, "with value", best_zero, "\n")
+
+    if speak:
+        print(f"Overall took me {round(time.time()-t0, 1)} seconds to find the zeros.")
     return roots
 
 
@@ -135,9 +142,11 @@ def get_cached_performance():
     for func in cached_functions:
         ci = func.cache_info()
         if ci.hits+ci.misses > 0:
-            print(f"{func.__name__} cache hits: {round(100 * ci.hits / (ci.hits + ci.misses))}%")
+            print(f"{func.__name__} cache hits: {round(100 * ci.hits / (ci.hits + ci.misses))}%"
+                  f" ({ci.hits+ci.misses} calls)")
         else:
             print(f"{func.__name__} was never called")
+    print()
 
 
 @lru_cache(maxsize=None)
@@ -150,15 +159,21 @@ def dx_dt(x: tuple, F: Callable[[float], float], G: Callable[[float, float], flo
     return f
 
 
-def format_time_elapsed(start_time):
-    return f"{round((time.time()-start_time) // 60)} min and {round((time.time()-start_time) % 60)} s"
+def format_time_elapsed(elapsed_time):
+    if elapsed_time < 5:
+        return (f"{round(elapsed_time // 60)} min "
+                f"{round(np.floor(elapsed_time % 60))} s"
+                f"{round(1000*(elapsed_time % 60 - np.floor(elapsed_time % 60)))} ms"
+                )
 
 
 @lru_cache(maxsize=None, typed=False)
-def find_lambda_star(pos_decay_func, pos_interaction_func, parameters: Tuple[float],
+def find_lambda_star(parameters: Tuple[float, float],
                      lower_bound=0.0, upper_bound=1e4, accuracy=1e-3):
-    """pos_decay_func and pos_interaction_func must have signature (x, *parameters) -> float and
-    (x, y, *parameters) -> float"""
+    """Decay and interaction function are hardcoded!"""
+    pos_decay_func = lambda x, tau, mu: -x
+    pos_interaction_func = lambda x, y, tau, mu: 1/(1+exp(tau*(mu-y))) - 1/(1+exp(tau*mu))
+
     guess = (lower_bound + upper_bound) / 2
 
     if upper_bound - lower_bound < accuracy:
@@ -174,9 +189,9 @@ def find_lambda_star(pos_decay_func, pos_interaction_func, parameters: Tuple[flo
             break
 
     if is_nonzero_root:
-        return find_lambda_star(pos_decay_func, pos_interaction_func, parameters, lower_bound, guess)
+        return find_lambda_star(parameters, lower_bound=lower_bound, upper_bound=guess)
     else:
-        return find_lambda_star(pos_decay_func, pos_interaction_func, parameters, guess, upper_bound)
+        return find_lambda_star(parameters, lower_bound=guess, upper_bound=upper_bound)
 
 
 def rho(A):
@@ -201,6 +216,12 @@ if __name__ == "__main__":
     print(find_lambda_star(lambda x, tau, mu: -x,
                            lambda x, y, tau, mu: 1/(1+np.exp(tau*(mu-y))) - 1/(1+np.exp(tau*mu)),
                            (1, 1)))
+    f = lambda p2: find_lambda_star(lambda x, tau, mu: -x,
+                                    lambda x, y, tau, mu: 1/(1+np.exp(tau*(mu-y))) - 1/(1+np.exp(tau*mu)),
+                                    (1, p2)) - 5
+    print(rootfinder(f, [0.1, 10], speak=True, N=10))
+
+    get_cached_performance()
 
 
 
