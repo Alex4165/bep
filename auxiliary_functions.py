@@ -146,7 +146,6 @@ def get_cached_performance():
                   f" ({ci.hits+ci.misses} calls)")
         else:
             print(f"{func.__name__} was never called")
-        func.cache_clear()
     print()
 
 
@@ -171,15 +170,15 @@ def format_time_elapsed(elapsed_time):
 def find_lambda_star(parameters: Tuple[float, float],
                      lower_bound=0.0, upper_bound=1e4, accuracy=1e-3):
     """Decay and interaction function are hardcoded!"""
-    pos_decay_func = lambda x, tau, mu: -x
-    pos_interaction_func = lambda x, y, tau, mu: 1/(1+exp(tau*(mu-y))) - 1/(1+exp(tau*mu))
+    def pos_decay_func(x, tau, mu): return -x
+    def pos_interaction_func(x, y, tau, mu): return 1/(1+exp(tau*(mu-y))) - 1/(1+exp(tau*mu))
 
     guess = (lower_bound + upper_bound) / 2
 
     if upper_bound - lower_bound < accuracy:
         return guess
 
-    f = lambda x: pos_decay_func(x, *parameters) + guess * pos_interaction_func(x, x, *parameters)
+    def f(x): return pos_decay_func(x, *parameters) + guess * pos_interaction_func(x, x, *parameters)
 
     is_nonzero_root = False
     xs = np.linspace(-1e-3, upper_bound, max(1000, int(10*upper_bound)))
@@ -212,16 +211,6 @@ def kmax(A):
     return kmax
 
 
-if __name__ == "__main__":
-    print(find_lambda_star(lambda x, tau, mu: -x,
-                           lambda x, y, tau, mu: 1/(1+np.exp(tau*(mu-y))) - 1/(1+np.exp(tau*mu)),
-                           (1, 1)))
-    f = lambda p2: find_lambda_star(lambda x, tau, mu: -x,
-                                    lambda x, y, tau, mu: 1/(1+np.exp(tau*(mu-y))) - 1/(1+np.exp(tau*mu)),
-                                    (1, p2)) - 5
-    print(rootfinder(f, [0.1, 10], speak=True, N=10))
-
-    get_cached_performance()
 
 
 

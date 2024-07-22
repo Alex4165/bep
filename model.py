@@ -93,7 +93,8 @@ class Model:
 
     def stability_run(self, dt, stabtol, x0, debugging=0, title="Stability Run"):
         """Run the stability analysis for the model"""
-        func = lambda arr: dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w))
+        def func(arr): return dx_dt(tuple(arr), self.decay_func, self.interact_func,
+                                    tuple(tuple(row) for row in self.w))
         return stability_run(func, dt, stabtol, x0, debugging, title=title)
 
     def random_stability_analysis(self, p1p, p2p, dt, stabtol=1e-5, max_run_time=50):

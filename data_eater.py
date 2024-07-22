@@ -36,7 +36,7 @@ def one_laurence(res, adj_matrix, decay_func, interact_func):
     alpha, beta = real(alpha), real(beta)
     R_norms = []
     for i in range(len(res[1])):
-        f = lambda R: decay_func(R, res[1][i], res[2][i]) + alpha * interact_func(beta * R, R, res[1][i], res[2][i])
+        def f(R): return decay_func(R, res[1][i], res[2][i]) + alpha * interact_func(beta * R, R, res[1][i], res[2][i])
         # (1 / (1 + np.exp(res[1][i] * (res[2][i] - R))) - 1 / (1 + np.exp(res[1][i] * res[2][i])))
         roots = rootfinder(f, [-1, adj_matrix.shape[0]])
         R_norms.append(np.max(roots))  # Choose the largest root because 0 will always be one
@@ -51,8 +51,8 @@ def reduce(A):
     alpha = eigs[k]
     K = np.diag([sum(A[i, :]) for i in range(A.shape[0])])
     beta = a @ K @ np.transpose(a) / (a @ np.transpose(a) * alpha)
-    alpha = alpha
-    beta = beta
+    alpha = real(alpha)
+    beta = real(beta)
     return a, alpha, beta
 
 
