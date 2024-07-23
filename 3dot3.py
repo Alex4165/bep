@@ -16,12 +16,18 @@ import multiprocessing
 # --- Section 3.3: Wu Rigorous bounds applied --- #
 
 # Parameters
-network_types = [['gen_random', {"size": 50, "p": 0.5}],
-                 ['gen_random', {"size": 100, "p": 0.25}],
-                 ['gen_random', {"size": 15, "p": 0.3}],
-                 ['gen_hub', {"size": 5, "minimum_deg": 2}],
-                 ['gen_hub', {"size": 10, "minimum_deg": 2}],
-                 ['gen_hub', {"size": 15, "minimum_deg": 2}],]
+network_types = [['gen_random', {"size": 50, "p": 0.102}],
+                 ['gen_random', {"size": 50, "p": 0.204}],
+                 ['gen_random', {"size": 50, "p": 0.306}],
+                 ['gen_random', {"size": 100, "p": 0.102}],
+                 ['gen_random', {"size": 100, "p": 0.204}],
+                 ['gen_random', {"size": 100, "p": 0.306}],
+                 ['gen_hub', {"size": 50, "minimum_deg": 2}],
+                 ['gen_hub', {"size": 50, "minimum_deg": 5}],
+                 ['gen_hub', {"size": 50, "minimum_deg": 8}],
+                 ['gen_hub', {"size": 100, "minimum_deg": 5}],
+                 ['gen_hub', {"size": 100, "minimum_deg": 10}],
+                 ['gen_hub', {"size": 100, "minimum_deg": 15}],]
 runs_per_type = 2
 dt = 5e-2
 stabtol = 1e-4
@@ -94,22 +100,31 @@ def run(network_type, network_param, run_number):
         filename += f"_{key}={value}"
     filename += f"_{run_number}.txt"
     with open(filename, "w") as f:
-        f.write(str(["[net.adj_matrix, equilibria, lstars]", net.adj_matrix, equilibria, lstars]))
+        f.write(str(["[explanation, net.adj_matrix, equilibria, lstars]", net.adj_matrix, equilibria, lstars]))
     print("finished " + filename)
 
 
 if __name__ == "__main__":
-    futs = []
-    start = time.time()
-    for i in range(len(network_types)):
-        for j in range(runs_per_type):
-            futs.append(multiprocessing.Process(target=run, args=(network_types[i][0], network_types[i][1], j+1)))
-            futs[-1].start()
+    opt = True
+    if opt:
+        futs = []
+        start = time.time()
+        for i in range(len(network_types)):
+            for j in range(runs_per_type):
+                futs.append(multiprocessing.Process(target=run, args=(network_types[i][0], network_types[i][1], j+1)))
+                futs[-1].start()
 
-    for f in futs:
-        f.join()
+        for f in futs:
+            f.join()
 
-    print(format_time_elapsed(time.time()-start))
+        print(format_time_elapsed(time.time()-start))
+    else:
+        start = time.time()
+        for i in range(len(network_types)):
+            for j in range(runs_per_type):
+                run(network_types[i][0], network_types[i][1], j+1)
+        print(format_time_elapsed(time.time()-start))
+
 
     get_cached_performance()
 
