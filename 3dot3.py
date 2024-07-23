@@ -11,15 +11,13 @@ from auxiliary_functions import (exp, format_time_elapsed, find_lambda_star, get
 from model import Model, stability_run
 from network_class import Network
 
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
-import os
+import multiprocessing
 
 # --- Section 3.3: Wu Rigorous bounds applied --- #
 
 # Parameters
-network_types = [['gen_random', {"size": 5, "p": 0.5}],
-                 ['gen_random', {"size": 10, "p": 0.25}],
+network_types = [['gen_random', {"size": 50, "p": 0.5}],
+                 ['gen_random', {"size": 100, "p": 0.25}],
                  ['gen_random', {"size": 15, "p": 0.3}],
                  ['gen_hub', {"size": 5, "minimum_deg": 2}],
                  ['gen_hub', {"size": 10, "minimum_deg": 2}],
@@ -96,16 +94,21 @@ def run(network_type, network_param, run_number):
         filename += f"_{key}={value}"
     filename += f"_{run_number}.txt"
     with open(filename, "w") as f:
-        f.write(str([net.adj_matrix, equilibria, lstars]))
+        f.write(str(["[net.adj_matrix, equilibria, lstars]", net.adj_matrix, equilibria, lstars]))
     print("finished " + filename)
 
 
 if __name__ == "__main__":
+    futs = []
     start = time.time()
-    with ThreadPoolExecutor() as executor:
-        for i in range(len(network_types)):
-            for j in range(runs_per_type):
-                executor.submit(partial(run, network_types[i][0], network_types[i][1], j+1))
+    for i in range(len(network_types)):
+        for j in range(runs_per_type):
+            futs.append(multiprocessing.Process(target=run, args=(network_types[i][0], network_types[i][1], j+1)))
+            futs[-1].start()
+
+    for f in futs:
+        f.join()
+
     print(format_time_elapsed(time.time()-start))
 
     get_cached_performance()
