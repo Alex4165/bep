@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, field
 
 from auxiliary_functions import real, RK4step, rootfinder, exp, plot_solution, dx_dt
+from data_eater import reduce
 from network_class import Network
 
 # ECB_link = scipy.io.loadmat('ECB_link.mat')["outputs"]
@@ -20,11 +21,12 @@ from network_class import Network
 TALKING = True
 
 
-def calculate_a1a2(c_arr, w_t, alpha1, vs):
+def calculate_a1a2(c_arr, w_t, vs):
     """Calculates the inner product between a1 and a2"""
     n = len(vs)  # dimension of reduction
     m = len(vs[0])  # dimension of vector
     a1 = np.sum([c_arr[i] * vs[i] for i in range(n)], axis=0) / np.sum([c_arr[i]*(np.ones(m) @ vs[i]) for i in range(n)])
+    alpha1 = np.ones(a1.shape) @ w_t @ a1
     a2 = (w_t @ a1) / alpha1
     a1_inner_a2 = np.transpose(a1) @ a2
     return np.abs(a1_inner_a2)
@@ -48,11 +50,10 @@ def stability_run(func: Callable[[List[float]], List[float]], dt, stabtol, x0, d
         x += RK4step(dt, func, x)
         normF = np.linalg.norm(func(x))
         xs.append(np.copy(x))
-        if debugging > 0:
-            if debugging == 1 and i % (10/dt) == 0:  # plot every number of computed seconds
-                plt.plot([dt * n for n in range(len(xs))], xs)
-                plt.show()
-                time.sleep(1)
+        if debugging == 1 and i % (10/dt) == 0:  # plot every number of computed seconds
+            plt.plot([dt * n for n in range(len(xs))], xs)
+            plt.show()
+            time.sleep(1)
         i += 1
 
     if debugging > 0:
@@ -131,34 +132,26 @@ class Model:
 
         return result
 
-    def LaurenceOneDimAnalysisRun(self, x0, dt=0.1, stabtol=1e-3):
-        # Definitions of One Dimensional Model
-        eigs, vecs = np.linalg.eig(np.transpose(self.w))
-        k = np.argmax(np.multiply(eigs, np.conjugate(eigs)))
-        a = vecs[:, k]/(sum(vecs[:, k]))
-        alpha = eigs[k]
-        K = np.diag([sum(self.w[i, :]) for i in range(self.dim)])
-        beta = a @ K @ np.transpose(a) / (a @ np.transpose(a) * alpha)
-
-        alpha = real(alpha)
-        beta = real(beta)
+    def laurence_one_dim_analysis_run(self, x0, dt=1e-1, stabtol=1e-3, debugging=0):
+        # Definitions of One-Dimensional Model
+        a, alpha, beta = reduce(self.w)
 
         # Stability run
-        func = lambda arr: dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w))
-        x = stability_run(func, dt, stabtol, x0)[0]
-
+        x = stability_run(lambda arr:
+                          dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w)),
+                          dt, stabtol, x0, debugging=debugging)[0]
         simulation = real(a @ x)
 
-        rooter = lambda R: self.decay_func(R) + alpha * self.interact_func(beta * R, R)
-        numeric_R = stability_run(rooter, dt, stabtol, a @ x0, debugging=2)[0]
-        print("numeric 1d", numeric_R)
-        # prediction = scipy.optimize.fsolve(rooter, [0, 20])
-        prediction2 = rootfinder(rooter, [-1, 50])
-        # print(f"{prediction} vs {prediction2}")
+        def reduced_eq(R): return self.decay_func(R) + alpha * self.interact_func(beta * R, R)
+        prediction = rootfinder(reduced_eq,[-1, 50], etol=1e-3)
+        for p in prediction:
+            if reduced_eq(p - 1e-2) < 0 < reduced_eq(p + 1e-2):
+                # Unstable equilibrium, let's remove it
+                prediction.remove(p)
 
-        return [alpha, simulation, prediction2, x]  # pass x to use as x0 next run (speeds up running time)
+        return alpha, simulation, prediction, x  # pass x to use as x0 next run (speeds up running time)
 
-    def laurence_multi_dim_analysis_run(self, x0, dt=1e-2, stabtol=1e-3, max_run_time=50):
+    def laurence_multi_dim_analysis_run(self, x0, dim: int = 0, dt=1e-2, stabtol=1e-3, max_run_time=50, debugging=0):
         """Returns simulation result, prediction with multidimensional reduction, list of 'a' vectors, alphas and
         beta values used (in order of eigenvalue norm descending)."""
         w_t = np.transpose(self.w)
@@ -166,81 +159,93 @@ class Model:
 
         # I/O and validation
         # print("First ten eigenvalues:", eigs[:10], "\n")
-        print("Sorted, normed eigenvalues:", np.sort(np.real(np.abs(eigs))), "\n")
-        n = input("How many eigenvalues are significant? (integer): ")
-        try:
-            n = int(n)
-        except ValueError:
-            print("That's not an integer!")
-            return self.laurence_multi_dim_analysis_run(x0=x0, dt=dt, stabtol=stabtol, max_run_time=max_run_time)
+        if dim == 0:
+            print("Sorted, normed eigenvalues:", np.sort(np.real(np.abs(eigs))), "\n")
+            n = input("How many eigenvalues are significant? (integer): ")
+            try:
+                n = int(n)
+            except ValueError:
+                print("That's not an integer!")
+                return self.laurence_multi_dim_analysis_run(x0=x0, dt=dt, stabtol=stabtol, max_run_time=max_run_time)
+        else:
+            n = dim
 
         # Get sorted eigenvalues, -vectors and K matrix
         arranged = [[vecs[:, i], eigs[i]] for i in range(self.dim)]
         arranged.sort(key=lambda item: np.conj(item[1])*item[1], reverse=True)
+        if self.w.all() >= 0:
+            i = 0
+            while sum(c < 0 for c in arranged[i][0]) > 0:
+                i += 1
+            post = arranged[i]
+            arranged.pop(i)
+            arranged.insert(0, post)
+
         vs = [item[0] for item in arranged[:n]]
-        alphas = [item[1] for item in arranged[:n]]
-        cs = np.array([(0.5)**i for i in range(n)])  # guess
+        cs = np.array([0.5 for _ in range(n)])  # guess
         K = np.diag([sum(self.w[i, :]) for i in range(self.dim)])
 
         # Find 'c' vector by minimizing the inner product between a1 and a2
-        res = minimize(lambda c_arr: calculate_a1a2(c_arr=c_arr, w_t=w_t, alpha1=alphas[0], vs=vs), cs)
+        res = minimize(lambda c_arr: calculate_a1a2(c_arr=c_arr, w_t=w_t, vs=vs), cs)
         c = res.x
-        print(f'Chosen c array = {c}: {res.message} Eigenvector overlap = {calculate_a1a2(c, w_t, alphas[0], vs)}')
+        # print(f'Chosen c array = {c}: {res.message} Eigenvector overlap = {calculate_a1a2(c, w_t, alphas[0], vs)}')
 
         # Use the minimizing 'c' vector to calculate 'a' vectors and betas
         a = [np.sum([c[i] * vs[i] for i in range(n)], axis=0) /
              np.sum([c[i]*np.dot(np.ones(self.dim), vs[i]) for i in range(n)])]
+        alphas = [np.ones(self.dim) @ w_t @ a[0]]
         betas = [a[0] @ K @ np.transpose(a[0]) / (a[0] @ np.transpose(a[0]) * alphas[0])]
         for i in range(1, n):
             a.append(np.dot(w_t, a[-1])/alphas[i-1])
+            alphas.append(np.ones(self.dim) @ w_t @ a[-1])
             betas.append(a[-1] @ K @ np.transpose(a[-1]) / (a[-1] @ np.transpose(a[-1]) * alphas[i]))
-        print('alphas', alphas, '\nbetas', betas)
+        # print('alphas', alphas, '\nbetas', betas)
 
         # Let's integrate the reduced ODE!
         func = lambda Rs: np.array([self.decay_func(Rs[i]) + alphas[i] *
                                     self.interact_func(betas[i] * Rs[i], Rs[i + 1]) for i in range(n - 1)] +
                                    [self.decay_func(Rs[-1]) + alphas[-1] * self.interact_func(betas[-1] * Rs[-1], Rs[0])])
         prediction = stability_run(func, dt, stabtol, np.array([a[i] @ x0 for i in range(n)]),
-                                   title=f"{n}D reduction", debugging=2, max_run_time=max_run_time)[0]
+                                   title=f"{n}D reduction", debugging=debugging, max_run_time=max_run_time)[0]
 
         # Integrate the original ODE
         func = lambda arr: dx_dt(tuple(arr), self.decay_func, self.interact_func, tuple(tuple(row) for row in self.w))
-        x = stability_run(func, dt, stabtol, x0, title="Full simulation", debugging=2, max_run_time=max_run_time)[0]
-        simulation_res = [a[i] @ x for i in range(n)]
+        x = stability_run(func, dt, stabtol, x0, title="Full simulation", debugging=debugging, max_run_time=max_run_time)[0]
+        simulation_res = np.array([a[i] @ x for i in range(n)])
 
         dec = 3
-        print(f"Error (act: {np.round(simulation_res, decimals=dec)} pred: {np.round(prediction, decimals=dec)}) = "
-              f"{np.round(np.linalg.norm(simulation_res-prediction), decimals=dec)}")
+        # print(f"Error (act: {np.round(simulation_res, decimals=dec)} pred: {np.round(prediction, decimals=dec)}) = "
+        #       f"{np.round(np.linalg.norm(simulation_res-prediction), decimals=dec)}")
 
-        return [simulation_res, prediction, a, alphas, betas]
+        return simulation_res, prediction, a, alphas, betas
 
 
 if __name__ == "__main__":
     net = Network()
-    net.gen_community([10, 10, 10])
-    net.randomize_weights()
-
-    const = 1/(1 - exp(3))
-
-
-    def decay(x):
-        return -x
-
-
-    def interact(x, y):
-        return 1/(1 + exp(3 - y)) - const
-
-
-    w = net.adj_matrix
-    model = Model(w, decay, interact)
-
-    x0 = 5 * np.random.rand(w.shape[0]) + 5
-    dt = 1e-2
-    stabtol = 1e-5
-
-    res = model.laurence_multi_dim_analysis_run(dt=dt, stabtol=stabtol, x0=x0)
-
-    res = model.laurence_multi_dim_analysis_run(dt=dt, stabtol=stabtol, x0=x0)
+    # net.gen_community([10, 10, 10])
+    # net.randomize_weights()
+    #
+    # const = 1/(1 - exp(3))
+    #
+    #
+    # def decay(x):
+    #     return -x
+    #
+    #
+    # def interact(x, y):
+    #     return 1/(1 + exp(3 - y)) - const
+    #
+    #
+    # w = net.adj_matrix
+    # model = Model(w, decay, interact)
+    #
+    # x0 = 5 * np.random.rand(w.shape[0]) + 5
+    # dt = 1e-2
+    # stabtol = 1e-5
+    #
+    # res = model.laurence_multi_dim_analysis_run(dt=dt, stabtol=stabtol, x0=x0)
+    #
+    # res = model.laurence_multi_dim_analysis_run(dt=dt, stabtol=stabtol, x0=x0)
 
     ### Non-cooperative Networks ###
     # N = 15

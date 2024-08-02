@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 
 
 def real(x):
-    if np.isreal(x):
+    if np.isreal(x.all()):
         return np.real(x)
     else:
         print(f"Uh oh! {x} is not real")
