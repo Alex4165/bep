@@ -160,9 +160,18 @@ def dx_dt(x: tuple, F: Callable[[float], float], G: Callable[[float, float], flo
 
 
 def format_time_elapsed(elapsed_time):
-    if elapsed_time < 5:
-        return f"{round(elapsed_time, 3)} s "
-    return (f"{round(elapsed_time // 60)} min "
+    if elapsed_time < 60:
+        return f"{round(elapsed_time, 3)} s"
+    if elapsed_time < 3600:
+        return (f"{round(elapsed_time // 60)} min "
+                f"{round(elapsed_time % 60)} s")
+    if elapsed_time < 86400:
+        return (f"{round(elapsed_time // 3600)} h "
+                f"{round(elapsed_time // 60)} min "
+                f"{round(elapsed_time % 60)} s")
+    return (f"{round(elapsed_time // 86400)} d "
+            f"{round(elapsed_time // 3600)} h "
+            f"{round(elapsed_time // 60)} min "
             f"{round(elapsed_time % 60)} s")
 
 

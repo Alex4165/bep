@@ -14,11 +14,11 @@ from data_eater import one_laurence, reduce
 # --- Parameters --- #
 DT = 5e-1
 STABTOL = 1e-3
-SIZE = 15
+SIZE = 12
 P = 0.2
 TAU = 1
 MU = 3
-DIM = 2
+DIM = 1
 ALPHAS = np.linspace(1, 25, 50)
 
 
@@ -32,7 +32,9 @@ def gen_alpha_dependence():
 
     net = Network()
     # net.gen_random(SIZE, P)
-    net.gen_community([int(SIZE/3), int(2*SIZE/3)], [[0.8, 3*SIZE**(-2)], [3*SIZE**(-2), 0.2]])
+    pop1, pop2 = int(SIZE/3), int(2*SIZE/3)
+    p = 2/(pop1 * pop2)
+    net.gen_community([pop1, pop2], [[1, p], [p, 1]])
     net.randomize_weights(lambda x: 2 + 5 * x)
     net.plot_graph()
     A = net.adj_matrix
@@ -64,9 +66,10 @@ def gen_alpha_dependence():
     colors = [u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f',
               u'#bcbd22', u'#17becf']
     for i in range(DIM):
-        plt.plot(results[0], results[i+1], label=f"Sim {i+1}", color=colors[i], linestyle='None', marker='.')
-        plt.plot(results[0], results[DIM + i + 1], label=f"Pred {i + 1}", color=colors[i], linestyle='None', marker='.',
-                 alpha=0.5)
+        plt.plot(results[0], results[DIM+i+1], label=f"Pred {i+1}", color=colors[i], linestyle='None',
+                 marker='s', alpha=0.5)
+        plt.plot(results[0], results[i+1], label=f"Sim {i+1}", color=colors[i], linestyle='None',
+                 marker='o', alpha=0.5)
     plt.legend()
     plt.xlabel("Alpha")
     plt.ylabel("R")
