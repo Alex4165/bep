@@ -1,6 +1,7 @@
 import gc
 import json
 import time
+import os
 
 import networkx
 import numpy as np
@@ -16,16 +17,18 @@ import multiprocessing
 # --- Section 3.3: Wu Rigorous bounds applied --- #
 
 # Parameters
-network_types = [['gen_random', {"size": 50, "p": 0.102}],
-                 ['gen_random', {"size": 50, "p": 0.204}],
-                 ['gen_random', {"size": 50, "p": 0.306}],
-                 ['gen_random', {"size": 100, "p": 0.102}],
-                 ['gen_random', {"size": 100, "p": 0.204}],
-                 ['gen_random', {"size": 100, "p": 0.306}],
-                 ['gen_random', {"size": 150, "p": 0.102}],
-                 ['gen_random', {"size": 150, "p": 0.204}],
-                 ['gen_random', {"size": 150, "p": 0.306}],]
-network_types = [['gen_random', {'size': 5, 'p': 0.4}]]
+network_types = [['gen_random', {"size": 51, "p": 0.1}],
+                 ['gen_random', {"size": 51, "p": 0.2}],
+                 ['gen_random', {"size": 51, "p": 0.3}],
+                 ['gen_random', {"size": 101, "p": 0.05}],
+                 ['gen_random', {"size": 101, "p": 0.1}],
+                 ['gen_random', {"size": 101, "p": 0.15}],
+                 ['gen_random', {"size": 151, "p": 1/30}],
+                 ['gen_random', {"size": 151, "p": 2/30}],
+                 ['gen_random', {"size": 151, "p": 0.1}],]
+# network_types = [['gen_random', {'size': 5, 'p': 0.4}]]
+p1s = np.arange(0.1, 10.1, 0.25).tolist()
+p2s = np.arange(0, 15, 0.25).tolist()
 runs_per_type = 1
 dt = 5e-2
 stabtol = 1e-4
@@ -45,7 +48,6 @@ def get_equilibrium(p1_range, p2_range, netw: Network):
     metric = np.linalg.norm
     tupled_w = tuple(tuple(row) for row in netw.adj_matrix)
 
-    # ti = time.time()
     for p1 in p1_range:
         for p2 in p2_range:
             def reduced_interact(x, y): return interact(x, y, p1, p2)  # p1=tau, p2=mu
@@ -53,11 +55,6 @@ def get_equilibrium(p1_range, p2_range, netw: Network):
             res = stability_run(integrator, dt, stabtol, 100*netw.size * np.random.random_sample(netw.size))
             results.append([p1, p2, metric(res[0])])
         gc.collect()
-
-        # i = p1_range.index(p1)
-        # print(f"{round((i+1) / len(p1_range) * 100)}% equilibrium completed, "
-        #       f"estimated {format_time_elapsed((time.time()-ti)/(i+1)*(len(p1_range)-i-1))} left")
-
     return results
 
 
@@ -68,10 +65,6 @@ def get_lambda_stars(p1_range, p2_range):
     for p1 in p1_range:
         for p2 in p2_range:
             results.append([p1, p2, find_lambda_star((p1, p2))])
-
-        # i = p1_range.index(p1)
-        # print(f"{round((i+1) / len(p1_range) * 100)}% lambda star completed, "
-        #       f"estimated {format_time_elapsed((time.time()-ti)/(i+1)*(len(p1_range)-i-1))} left")
     return results
 
 
@@ -80,31 +73,35 @@ def make_network(network_generator: str, network_params: dict):
     generator = getattr(netw, network_generator)
     generator(**network_params)
     netw.randomize_weights(lambda x: 5 * x + 1)
-    # netw.plot_graph()
     return netw
 
 
 def run(network_type, network_param, run_number):
+    filename = "data/3dot3_" + network_type
+    for key, value in network_param.items():
+        filename += f"_{key}={value}"
+    if run_number > 1:
+        filename += f"_{run_number}.txt"
+    
+    print("starting " + filename)
+    t0 = time.time()
+          
     net = make_network(network_type, network_param)
-    p1s = np.arange(0.1, 10.1, 0.1).tolist()
-    p2s = np.arange(0, 15, 0.1).tolist()
-    p1s = np.arange(0.1, 10.1, 1).tolist()
-    p2s = np.arange(0, 15, 1).tolist()
     equilibria = get_equilibrium(p1s, p2s, net)
     lstars = get_lambda_stars(p1s, p2s)
     equilibria, lstars = np.array(equilibria).T.tolist(), np.array(lstars).T.tolist()
 
-    filename = "data/3dot3_" + network_type
-    for key, value in network_param.items():
-        filename += f"_{key}={value}"
-    filename += f"_{run_number}.txt"
     with open(filename, "w") as f:
         json.dump([net.adj_matrix.tolist(), equilibria, lstars], f)
-    print("finished " + filename)
+        
+    print(f"finished {filename} in {format_time_elapsed(time.time()-t0)}")
+    get_cached_performance()
 
 
 if __name__ == "__main__":
-    generating_data = False
+    print("----- I AM RUNNING -----\n")
+    print("CPU Count:", os.cpu_count())
+    generating_data = True
     if generating_data:
         futs = []
         start = time.time()
@@ -116,8 +113,9 @@ if __name__ == "__main__":
         for f in futs:
             f.join()
 
-        print(format_time_elapsed(time.time()-start))
-        get_cached_performance()
+        print("\n----- FINISHED RUNNING -----")
+        print(f"Took: {format_time_elapsed(time.time()-start)}")
+        
     else:
         filenames = ["data/3dot3_gen_random_size=50_p=0.102_1.txt",
                      "data/3dot3_gen_random_size=50_p=0.102_2.txt",
@@ -131,7 +129,6 @@ if __name__ == "__main__":
                      "data/3dot3_gen_random_size=100_p=0.204_2.txt",
                      "data/3dot3_gen_random_size=100_p=0.306_1.txt",
                      "data/3dot3_gen_random_size=100_p=0.306_2.txt",]
-        filenames = ["data/3dot3_gen_random_size=5_p=0.4_1.txt"]
         for filename in filenames:
             with open(filename, "r") as f:
                 data = json.load(f)  # [adjacency matrix, [[p1], [p2], [eq]], [[p1], [p2], [lambda]]
