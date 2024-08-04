@@ -16,11 +16,13 @@ center_out = 1
 center_in = 2
 size = 6
 alphas = np.arange(5, 9, 0.2)
-kouts = np.arange(4, 8, 0.2)
+kouts = np.arange(2, 10, 0.2)
 
 A = np.zeros((size, size))
 A[0, 1:] = np.array([center_in for i in range(size - 1)])
 A[1:, 0] = np.array([center_out for i in range(size - 1)]).T
+A[0, 1:] = 2 * np.random.random_sample(size - 1)
+A[1:, 0] = np.random.random_sample(size - 1).T
 
 
 def f(x): return -x

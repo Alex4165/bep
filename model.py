@@ -171,18 +171,20 @@ class Model:
             n = dim
 
         # Get sorted eigenvalues, -vectors and K matrix
+
         arranged = [[vecs[:, i], eigs[i]] for i in range(self.dim)]
         arranged.sort(key=lambda item: np.conj(item[1])*item[1], reverse=True)
         if self.w.all() >= 0:
             i = 0
-            while sum(c < 0 for c in arranged[i][0]) > 0:
+            while 0 < sum(c < 0 for c in arranged[i][0]) < self.dim:
                 i += 1
             post = arranged[i]
             arranged.pop(i)
             arranged.insert(0, post)
 
+        # Get eigenvectors and K matrix
         vs = [item[0] for item in arranged[:n]]
-        cs = np.array([0.5 for _ in range(n)])  # guess
+        cs = np.array([0.5 for _ in range(n)])  # guess for the 'c' weight vector that defines the 'a' vectors
         K = np.diag([sum(self.w[i, :]) for i in range(self.dim)])
 
         # Find 'c' vector by minimizing the inner product between a1 and a2

@@ -32,7 +32,7 @@ class Network:
         probability of community r attaching to s. If None, random values are taken."""
         if probabilities is None:
             probabilities = [[np.random.rand() for s in range(len(sizes))] for r in range(len(sizes))]
-        self.graph = nx.stochastic_block_model(sizes=sizes, p=probabilities, directed=True)
+        self.graph = nx.stochastic_block_model(sizes=sizes, p=probabilities)
         self.adj_matrix = nx.adjacency_matrix(self.graph).toarray()
         self.size = self.graph.number_of_nodes()
 
@@ -64,10 +64,12 @@ class Network:
             plt.savefig("data/"+title+".pdf")
         plt.show()
 
-    def randomize_weights(self, factor=lambda x: 2*x-1):
+    def randomize_weights(self, factor=lambda x: 2*x-1, symmetric=True):
         """Reweight the network with factor a function of a uniform random variable between 0 and 1."""
         if self.adj_matrix is not None:
             random_adjustments = factor(np.random.random_sample((self.size, self.size)))
+            if symmetric:
+                random_adjustments = (random_adjustments + random_adjustments.T)/2
             self.adj_matrix = np.multiply(self.adj_matrix, random_adjustments)
         else:
             raise ValueError("No network to speak of!")
