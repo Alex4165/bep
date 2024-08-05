@@ -79,6 +79,41 @@ class Result:
     simulations: List[np.ndarray] = field(default_factory=list)
 
 
+def multi_dim_reduce(n, w_t):
+    # Sort eigenvalues (and vectors) by norm, descending, and with positives first
+    eigs, vecs = np.linalg.eig(w_t)
+    size = w_t.shape[0]
+    arranged = [[vecs[:, i], eigs[i]] for i in range(size)]
+    arranged.sort(key=lambda item: np.conj(item[1]) * item[1], reverse=True)
+    if w_t.all() >= 0:
+        for index in range(size - 1):
+            if np.linalg.norm(arranged[index][1]) == np.linalg.norm(arranged[index + 1][1]):
+                # We want to sort by positive eigenvalues first
+                if np.real(arranged[index][1]) < 0:
+                    arranged[index], arranged[index + 1] = arranged[index + 1], arranged[index]
+
+    # Get eigenvectors and K matrix
+    vs = [item[0] for item in arranged[:n]]
+    cs = np.array([0.5 for _ in range(n)])  # guess for the 'c' weight vector that defines the 'a' vectors
+    K = np.diag([sum(w_t[:, i]) for i in range(size)])
+
+    # Find 'c' vector by minimizing the inner product between a1 and a2
+    res = minimize(lambda c_arr: calculate_a1a2(c_arr=c_arr, w_t=w_t, vs=vs), cs)
+    c = res.x
+    # print(f'Chosen c array = {c}: {res.message} Eigenvector overlap = {calculate_a1a2(c, w_t, alphas[0], vs)}')
+
+    # Use the minimizing 'c' vector to calculate 'a' vectors and betas
+    a = [np.sum([c[i] * vs[i] for i in range(n)], axis=0) /
+         np.sum([c[i] * np.dot(np.ones(size), vs[i]) for i in range(n)])]
+    alphas = [np.ones(size) @ w_t @ a[0]]
+    betas = [a[0] @ K @ np.transpose(a[0]) / (a[0] @ np.transpose(a[0]) * alphas[0])]
+    for i in range(1, n):
+        a.append(np.dot(w_t, a[-1]) / alphas[i - 1])
+        alphas.append(np.ones(size) @ w_t @ a[-1])
+        betas.append(a[-1] @ K @ np.transpose(a[-1]) / (a[-1] @ np.transpose(a[-1]) * alphas[i]))
+    return a, alphas, betas
+
+
 class Model:
     def __init__(self, W: np.ndarray, F: Callable[[float], float], G: Callable[[float, float], float]):
         self.w = W
@@ -170,35 +205,7 @@ class Model:
         else:
             n = dim
 
-        # Sort eigenvalues (and vectors) by norm, descending, and with positives first
-        arranged = [[vecs[:, i], eigs[i]] for i in range(self.dim)]
-        arranged.sort(key=lambda item: np.conj(item[1])*item[1], reverse=True)
-        if self.w.all() >= 0:
-            for index in range(self.dim-1):
-                if np.linalg.norm(arranged[index][1]) == np.linalg.norm(arranged[index+1][1]):
-                    # We want to sort by positive eigenvalues first
-                    if np.real(arranged[index][1]) < 0:
-                        arranged[index], arranged[index+1] = arranged[index+1], arranged[index]
-        # Get eigenvectors and K matrix
-        vs = [item[0] for item in arranged[:n]]
-        cs = np.array([0.5 for _ in range(n)])  # guess for the 'c' weight vector that defines the 'a' vectors
-        K = np.diag([sum(self.w[i, :]) for i in range(self.dim)])
-
-        # Find 'c' vector by minimizing the inner product between a1 and a2
-        res = minimize(lambda c_arr: calculate_a1a2(c_arr=c_arr, w_t=w_t, vs=vs), cs)
-        c = res.x
-        # print(f'Chosen c array = {c}: {res.message} Eigenvector overlap = {calculate_a1a2(c, w_t, alphas[0], vs)}')
-
-        # Use the minimizing 'c' vector to calculate 'a' vectors and betas
-        a = [np.sum([c[i] * vs[i] for i in range(n)], axis=0) /
-             np.sum([c[i]*np.dot(np.ones(self.dim), vs[i]) for i in range(n)])]
-        alphas = [np.ones(self.dim) @ w_t @ a[0]]
-        betas = [a[0] @ K @ np.transpose(a[0]) / (a[0] @ np.transpose(a[0]) * alphas[0])]
-        for i in range(1, n):
-            a.append(np.dot(w_t, a[-1])/alphas[i-1])
-            alphas.append(np.ones(self.dim) @ w_t @ a[-1])
-            betas.append(a[-1] @ K @ np.transpose(a[-1]) / (a[-1] @ np.transpose(a[-1]) * alphas[i]))
-        # print('alphas', alphas, '\nbetas', betas)
+        a, alphas, betas = multi_dim_reduce(n, w_t)
 
         # Let's integrate the reduced ODE!
         func = lambda Rs: np.array([self.decay_func(Rs[i]) + alphas[i] *
@@ -212,7 +219,7 @@ class Model:
         x = stability_run(func, dt, stabtol, x0, title="Full simulation", debugging=debugging, max_run_time=max_run_time)[0]
         simulation_res = np.array([a[i] @ x for i in range(n)])
 
-        dec = 3
+        # dec = 3
         # print(f"Error (act: {np.round(simulation_res, decimals=dec)} pred: {np.round(prediction, decimals=dec)}) = "
         #       f"{np.round(np.linalg.norm(simulation_res-prediction), decimals=dec)}")
 

@@ -167,11 +167,11 @@ def format_time_elapsed(elapsed_time):
                 f"{round(elapsed_time % 60)} s")
     if elapsed_time < 86400:
         return (f"{round(elapsed_time // 3600)} h "
-                f"{round(elapsed_time // 60)} min "
+                f"{round((elapsed_time % 3600) // 60)} min "
                 f"{round(elapsed_time % 60)} s")
     return (f"{round(elapsed_time // 86400)} d "
-            f"{round(elapsed_time // 3600)} h "
-            f"{round(elapsed_time // 60)} min "
+            f"{round((elapsed_time % 86400) // 3600)} h "
+            f"{round((elapsed_time % 3600) // 60)} min "
             f"{round(elapsed_time % 60)} s")
 
 
