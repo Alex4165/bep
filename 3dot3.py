@@ -33,6 +33,7 @@ P2_RANGE = np.arange(0, 15, 0.25).tolist()
 RUNS_PER_TYPE = 1
 DT = 5e-2
 STABTOL = 1e-4
+def WEIGHT_FUNCTION(x): return 5 * x + 1
 
 
 # Dynamic equations (we assume all model have the same dynamic equations)
@@ -54,8 +55,9 @@ def get_equilibrium(p1_range, p2_range, netw: Network):
         for p2 in p2_range:
             def reduced_interact(x, y): return interact(x, y, p1, p2)  # p1=tau, p2=mu
             def integrator(arr): return dx_dt(tuple(arr), decay, reduced_interact, tupled_w)
-            res = stability_run(integrator, DT, STABTOL, 100 * netw.size * np.random.random_sample(netw.size))
-            results.append([p1, p2, metric(res[0])])
+            x0 = 100 * netw.size * np.random.random_sample(netw.size)
+            res = stability_run(integrator, DT, STABTOL, x0)
+            results.append([p1, p2, x0, res[0]])
 
         gc.collect()
         count += 1
@@ -83,7 +85,7 @@ def make_network(network_generator: str, network_params: dict):
     netw = Network()
     generator = getattr(netw, network_generator)
     generator(**network_params)
-    netw.randomize_weights(lambda x: 5 * x + 1)
+    netw.randomize_weights(WEIGHT_FUNCTION)
     return netw
 
 
@@ -92,7 +94,9 @@ def run(network_type, network_param, run_number):
     for key, value in network_param.items():
         filename += f"_{key}={value}"
     if run_number > 1:
-        filename += f"_{run_number}.txt"
+        filename += f"_{run_number}"
+
+    filename += f"_DT={DT}_STABTOL={STABTOL}.txt"
     
     print("starting " + filename + " on Process " + str(os.getpid()))
     t0 = time.time()
