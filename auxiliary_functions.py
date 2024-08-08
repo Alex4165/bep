@@ -62,6 +62,7 @@ def rootfinder(f, interval, etol=1e-2, N=1000, do_initial_search=True, speak=Fal
         best_zero = zero
         best_guess = x1
 
+        count = 0
         while abs(best_zero) > etol:
             if speak:
                 print(f"my best guess f({best_guess})={best_zero}")
@@ -78,6 +79,7 @@ def rootfinder(f, interval, etol=1e-2, N=1000, do_initial_search=True, speak=Fal
             k = np.argmin([np.abs(y1), np.abs(ym), np.abs(y2)])
             best_zero = [y1, ym, y2][k]
             best_guess = [x1, m, x2][k]
+            count += 1
 
         roots.append(best_guess)
         if speak:
@@ -85,6 +87,7 @@ def rootfinder(f, interval, etol=1e-2, N=1000, do_initial_search=True, speak=Fal
 
     if speak:
         print(f"Overall took me {round(time.time()-t0, 1)} seconds to find the zeros.")
+    print(f"found root in {count} step")
     return roots
 
 

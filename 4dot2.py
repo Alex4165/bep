@@ -9,7 +9,7 @@ from typing import List
 from functools import lru_cache
 
 # --- Section 4.2: How badly does Wu predict the collapse of noncooperative networks? --- #
-# This is the exact same code as 3dot3.py, but using a noncooperative network instead.
+# This is the exact same code as threedotthree.py, but using a noncooperative network instead.
 
 
 def decay(x): return -x**3 + 3*x**2-2.5*x

@@ -18,20 +18,21 @@ import multiprocessing
 
 # Parameters
 p1_fixed = [0.1, 0.5, 1, 1.5, 2, 3, 4, 5, 7.5, 10]
-NETWORK_TYPES = [
-                 ['gen_random', {"size": 51, "p": 0.1}, p1_fixed, np.linspace(9, 20, 10).tolist()],
-                 ['gen_random', {"size": 51, "p": 0.2}, p1_fixed, np.linspace(15, 30, 10).tolist()],
-                 ['gen_random', {"size": 51, "p": 0.3}, p1_fixed, np.linspace(25, 50, 10).tolist()],
-                 ['gen_random', {"size": 101, "p": 0.05}, p1_fixed, np.linspace(9, 20, 10).tolist()],
-                 ['gen_random', {"size": 101, "p": 0.1}, p1_fixed, np.linspace(25, 50, 10).tolist()],
-                 ['gen_random', {"size": 101, "p": 0.15}, p1_fixed, np.linspace(30, 35, 10).tolist()],
-                 ['gen_random', {"size": 151, "p": 1/30}, p1_fixed, np.linspace(25, 50, 10).tolist()],
-                 ['gen_random', {"size": 151, "p": 2/30}, p1_fixed, np.linspace(15, 30, 10).tolist()],
-                 ['gen_random', {"size": 151, "p": 0.1}, p1_fixed, np.linspace(25, 50, 10).tolist()],
-]
+# NETWORK_TYPES = [
+#                  ['gen_random', {"size": 51, "p": 0.1}, p1_fixed, np.linspace(9, 20, 10).tolist()],
+#                  ['gen_random', {"size": 51, "p": 0.2}, p1_fixed, np.linspace(15, 30, 10).tolist()],
+#                  ['gen_random', {"size": 51, "p": 0.3}, p1_fixed, np.linspace(25, 50, 10).tolist()],
+#                  ['gen_random', {"size": 101, "p": 0.05}, p1_fixed, np.linspace(9, 20, 10).tolist()],
+#                  ['gen_random', {"size": 101, "p": 0.1}, p1_fixed, np.linspace(25, 50, 10).tolist()],
+#                  ['gen_random', {"size": 101, "p": 0.15}, p1_fixed, np.linspace(30, 35, 10).tolist()],
+#                  ['gen_random', {"size": 151, "p": 1/30}, p1_fixed, np.linspace(25, 50, 10).tolist()],
+#                  ['gen_random', {"size": 151, "p": 2/30}, p1_fixed, np.linspace(15, 30, 10).tolist()],
+#                  ['gen_random', {"size": 151, "p": 0.1}, p1_fixed, np.linspace(25, 50, 10).tolist()],
+# ]
 NETWORK_TYPES = []
-SIZES = [10, 20, 30,
-         40, 50, 60, 70, 80
+SIZES = [10,
+         # 20, 30,
+         # 40, 50, 60, 70, 80
          ]
 for size in SIZES:
     for av_deg in [1, 5, 10, 15, 25]:
@@ -44,7 +45,7 @@ for size in SIZES:
 RUNS_PER_TYPE = 1
 DT = 1e-1
 STABTOL = 1e-4
-def WEIGHT_FUNCTION(x): return x + 1
+def WEIGHT_FUNCTION(x): return 5*x + 1
 
 
 # Dynamic equations (we assume all model have the same dynamic equations)
@@ -137,6 +138,55 @@ def get_lambda_stars(p1_range, p2_range):
     return results
 
 
+def get_critical_ls(p1_range, p2_min, p2_max, crit_val, tolerance=1e-2):
+    p2_low, p2_high = p2_min, p2_max
+    crit_p1s, crit_p2s = [], []
+    max_count = np.ceil(np.log2((p2_high - p2_low) / tolerance)) + 1
+    for p1 in p1_range:
+        min_val = find_lambda_star((p1, p2_low))
+        max_val = find_lambda_star((p1, p2_high))
+        if crit_val < min_val or max_val < crit_val:
+            continue
+        count = 0
+        while p2_high - p2_low > tolerance and count <= max_count:
+            p2 = (p2_low + p2_high) / 2
+            ls = find_lambda_star((p1, p2))
+            if ls > crit_val:
+                p2_high = p2
+            else:
+                p2_low = p2
+            count += 1
+        if p2_high - p2_low > tolerance:
+            print("DIDN'T ACHIEVE UNCERTAINTY WITHIN TOLERANCE")
+        crit_p1s.append(p1)
+        crit_p2s.append(p2)
+        p2_low, p2_high = p2_min, p2_max
+    return crit_p1s, crit_p2s
+
+
+def get_data_critical_eq(run_data):
+    metric = np.linalg.norm
+    data_dict = {}
+    for i, p1 in enumerate(run_data[1][0]):
+        if p1 not in data_dict:
+            data_dict[p1] = [[], []]
+        data_dict[p1][0].append(run_data[1][1][i])
+        data_dict[p1][1].append(run_data[1][3][i])
+
+    p1s = []
+    p2s = []
+    for p1, coll in data_dict.items():
+        sorted_indices = sorted([k for k in range(len(coll[0]))], key=lambda k: coll[0][k])
+        for m in range(len(sorted_indices)):
+            i_here, i_prev = sorted_indices[m], sorted_indices[m-1]
+            if metric(coll[1][i_here]) <= 1e-2:
+                p1s.append(p1)
+                best_guess = (coll[0][i_here]+coll[0][i_prev])/2
+                p2s.append(best_guess)
+                break
+    return p1s, p2s
+
+
 def make_network(network_generator: str, network_params: dict):
     netw = Network()
     generator = getattr(netw, network_generator)
@@ -209,20 +259,46 @@ if __name__ == "__main__":
 
         for filename in filenames:
             with open(filename, "r") as f:
-                data = json.load(f)  
-                #kmax, rho = kmax(np.array(data[0])), rho(np.array(data[0]))
-                #lower_bound_alpha = np.where(data[1][2] <= kmax, 1, 0)
-                #upper_bound_alpha = np.where(data[1][2] >= rho, 1, 0)
+                data = json.load(f)
 
-                #plt.scatter(data[2][0], data[2][1], c='green', alpha=lower_bound_alpha, s=100)
-                #plt.scatter(data[2][0], data[2][1], c='red', alpha=upper_bound_alpha, s=100)
-                plt.scatter(data[1][0], data[1][1], c=[np.linalg.norm(p) for p in data[1][3]], cmap='viridis', s=25)
-                plt.colorbar(label='Eq. norm')
+                A = np.array(data[0])
+                p1_r = np.unique(data[1][0])
+                km, rh = kmax(A), rho(A)
+
+                actual_p1s, actual_p2s = get_data_critical_eq(data)
+                x_range = [0.1*(i+1) for i in range(10)] + [1+i*0.5 for i in range(10)] + [i for i in range(5, 11)]
+                x_range = p1_r
+                kmax_p1s, kmax_p2s = get_critical_ls(x_range, 0, 200, km)
+                rho_p1s, rho_p2s = get_critical_ls(x_range, 0, 200, rh)
+
+                plt.plot(actual_p1s, actual_p2s, 'k.', label="actual")
+                # plt.plot(kmax_p1s, kmax_p2s, color='#77DD77', alpha=0.5, label="kmax")
+                # plt.plot(rho_p1s, rho_p2s, color='red', alpha=0.5, label="rho")
+
+                ymin, ymax = plt.gca().get_ylim()
+                plt.fill_between(kmax_p1s, kmax_p2s, ymin, alpha=0.5, color='#77DD77')
+                plt.fill_between(rho_p1s, rho_p2s, ymax, alpha=0.5, color="red")
+
                 plt.xlabel("Tau")
                 plt.ylabel("Mu")
-                title = filename.replace("_", " ").replace("data/3dot3 ", "").replace(".txt", "")
+                title = (filename.replace("_", " ")
+                                 .replace("data/3dot3 ", "")
+                                 .replace(".txt", "")
+                                 .replace("gen random", "ER"))
                 plt.title(title)
+                plt.legend()
                 plt.show()
+
+                # lambda_stars = [find_lambda_star((p1, p2)) for (p1, p2) in zip(data[1][0], data[1][1])]
+                # lower_bound_alpha = np.where(lambda_stars <= km, 1, 0)
+                # upper_bound_alpha = np.where(lambda_stars >= rh, 1, 0)
+                # plt.scatter(data[1][0], data[1][1], c='green', s=100, alpha=lower_bound_alpha)
+                # plt.scatter(data[1][0], data[1][1], c='red', s=100, alpha=upper_bound_alpha)
+                # plt.scatter(data[1][0], data[1][1], c=[np.linalg.norm(x) for x in data[1][3]], cmap="viridis")
+                # plt.ylim(top=max(max(actual_p2s), max(rho_p2s), max(kmax_p2s))+0.1,
+                #          bottom=min(min(actual_p2s), min(rho_p2s), min(kmax_p2s))-0.1)
+                # plt.colorbar()
+                # plt.show()
     
     print("\n----- PROGRAM FINISHED -----")
     print(f"Took: {format_time_elapsed(time.time()-start)}")
