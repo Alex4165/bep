@@ -1,6 +1,7 @@
 import gc
 import json
 import time
+from datetime import datetime
 import os
 
 import numpy as np
@@ -16,23 +17,34 @@ import multiprocessing
 # --- Section 3.3: Wu Rigorous bounds applied --- #
 
 # Parameters
-p1_fixed = [0.1, 0.2, 0.3, 0.5, 0.7, 0.9, 1.1, 2, 5, 10]
+p1_fixed = [0.1, 0.5, 1, 1.5, 2, 3, 4, 5, 7.5, 10]
 NETWORK_TYPES = [
-                 ['gen_random', {"size": 51, "p": 0.1}, p1_fixed, np.linspace(11, 12, 10).tolist()],
-                 ['gen_random', {"size": 51, "p": 0.2}, p1_fixed, np.linspace(21, 23, 10).tolist()],
-                 ['gen_random', {"size": 51, "p": 0.3}, p1_fixed, np.linspace(30, 35, 10).tolist()],
-                 ['gen_random', {"size": 101, "p": 0.05}, p1_fixed, np.linspace(12, 13, 10).tolist()],
-                 ['gen_random', {"size": 101, "p": 0.1}, p1_fixed, np.linspace(22, 23, 10).tolist()],
+                 ['gen_random', {"size": 51, "p": 0.1}, p1_fixed, np.linspace(9, 20, 10).tolist()],
+                 ['gen_random', {"size": 51, "p": 0.2}, p1_fixed, np.linspace(15, 30, 10).tolist()],
+                 ['gen_random', {"size": 51, "p": 0.3}, p1_fixed, np.linspace(25, 50, 10).tolist()],
+                 ['gen_random', {"size": 101, "p": 0.05}, p1_fixed, np.linspace(9, 20, 10).tolist()],
+                 ['gen_random', {"size": 101, "p": 0.1}, p1_fixed, np.linspace(25, 50, 10).tolist()],
                  ['gen_random', {"size": 101, "p": 0.15}, p1_fixed, np.linspace(30, 35, 10).tolist()],
-                 # ['gen_random', {"size": 151, "p": 1/30}, p1_fixed, np.linspace(11, 12, 10).tolist()],
-                 # ['gen_random', {"size": 151, "p": 2/30}, p1_fixed, np.linspace(21, 22, 10).tolist()],
-                 # ['gen_random', {"size": 151, "p": 0.1}, p1_fixed, np.linspace(30, 35, 10).tolist()],
+                 ['gen_random', {"size": 151, "p": 1/30}, p1_fixed, np.linspace(25, 50, 10).tolist()],
+                 ['gen_random', {"size": 151, "p": 2/30}, p1_fixed, np.linspace(15, 30, 10).tolist()],
+                 ['gen_random', {"size": 151, "p": 0.1}, p1_fixed, np.linspace(25, 50, 10).tolist()],
 ]
-NETWORK_TYPES = [['gen_random', {'size': 5, 'p': 0.4}, np.arange(1, 5, 1).tolist(), np.arange(0.1, 20)]]
+NETWORK_TYPES = []
+SIZES = [10, 20, 30,
+         40, 50, 60, 70, 80
+         ]
+for size in SIZES:
+    for av_deg in [1, 5, 10, 15, 25]:
+        if av_deg <= size-1:
+            NETWORK_TYPES.append(['gen_random',
+                                  {"size": size, "p": av_deg/(size-1)},
+                                  p1_fixed,
+                                  [0, 100]])
+# NETWORK_TYPES = [['gen_random', {'size': 5, 'p': 0.4}, np.arange(1, 5, 1).tolist(), np.arange(0.1, 20)]]
 RUNS_PER_TYPE = 1
 DT = 1e-1
 STABTOL = 1e-4
-def WEIGHT_FUNCTION(x): return 5 * x + 1
+def WEIGHT_FUNCTION(x): return x + 1
 
 
 # Dynamic equations (we assume all model have the same dynamic equations)
@@ -59,20 +71,32 @@ def get_equilibrium(p1_range, p2_range, netw: Network):
             results.append([p1, p2, x0.tolist(), res[0].tolist()])
 
         count += 1
-        print(f"Process {os.getpid()} | get_equilibrium {round(100*count/len(p1_range))}% completed | "
-              f"average duration: {format_time_elapsed((time.time()-ti)/count)} | "
-              f"expected time left: {format_time_elapsed((time.time()-ti)/count*(len(p1_range)-count))}")
+        print(f"Process {os.getpid()}"
+              f"\tget_equilibrium {round(100*count/len(p1_range))}% completed"
+              f"\taverage duration: {format_time_elapsed((time.time()-ti)/count)}"
+              f"\texpected time left: {format_time_elapsed((time.time()-ti)/count*(len(p1_range)-count))}")
     return results
 
 
 def get_critical_points(p1_range, p2_min, p2_max, netw: Network, tolerance=1e-1):
+    """Currently assumes eq(p1, p2) is DECREASING in p2"""
     results = []
     metric = np.linalg.norm
+    max_count = np.ceil(np.log2((p2_max-p2_min)/tolerance))+1  # +1 for good measure
     tupled_w = tuple(tuple(row) for row in netw.adj_matrix)
+    ti = time.time()
     for p1 in p1_range:
         p2_low, p2_high = p2_min, p2_max
         count = 0
-        while (p2_high - p2_low) > tolerance:
+
+        def reduced_interact(x, y): return interact(x, y, p1, p2_min)
+        def integrator(arr): return dx_dt(tuple(arr), decay, reduced_interact, tupled_w)
+        x0 = 100 * netw.size * np.random.random_sample(netw.size)
+        res = stability_run(integrator, DT, STABTOL, x0)
+        if metric(res[0]) < 1e-2:  # We assume equilibrium at p2_min is 'large' else, we stop
+            continue
+        
+        while (p2_high - p2_low) > tolerance and count <= max_count:
             count += 1
             p2_mid = (p2_low + p2_high) / 2
 
@@ -86,7 +110,15 @@ def get_critical_points(p1_range, p2_min, p2_max, netw: Network, tolerance=1e-1)
                 p2_low = p2_mid
             else:
                 p2_high = p2_mid
-        print(count)
+        if p2_high - p2_low > tolerance:
+            print("DIDN'T ACHIEVE UNCERTAINTY WITHIN TOLERANCE")
+
+        progress = p1_range.index(p1) + 1
+        print(f"Process {os.getpid()}"
+              f"\tget_equilibrium: {round(100*progress/len(p1_range))}%  "
+              f"\tavg dur: {format_time_elapsed((time.time()-ti)/progress)}  "
+              f"\texp time left: {format_time_elapsed((time.time()-ti)/progress*(len(p1_range)-progress))}  "
+              f"\tnow: {datetime.now()}  ")
 
     return results
 
@@ -194,7 +226,6 @@ if __name__ == "__main__":
     
     print("\n----- PROGRAM FINISHED -----")
     print(f"Took: {format_time_elapsed(time.time()-start)}")
-
 
 
 
