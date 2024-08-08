@@ -18,16 +18,17 @@ import multiprocessing
 # Parameters
 p1_fixed = [0.1, 0.2, 0.3, 0.5, 0.7, 0.9, 1.1, 2, 5, 10]
 NETWORK_TYPES = [
-                 #['gen_random', {"size": 51, "p": 0.1}, p1_fixed, np.linspace(11, 12, 10).tolist()],
-                 #['gen_random', {"size": 51, "p": 0.2}, p1_fixed, np.linspace(21, 23, 10).tolist()],
-                 #['gen_random', {"size": 51, "p": 0.3}, p1_fixed, np.linspace(30, 35, 10).tolist()],
-                 #['gen_random', {"size": 101, "p": 0.05}, p1_fixed, np.linspace(12, 13, 10).tolist()],
+                 ['gen_random', {"size": 51, "p": 0.1}, p1_fixed, np.linspace(11, 12, 10).tolist()],
+                 ['gen_random', {"size": 51, "p": 0.2}, p1_fixed, np.linspace(21, 23, 10).tolist()],
+                 ['gen_random', {"size": 51, "p": 0.3}, p1_fixed, np.linspace(30, 35, 10).tolist()],
+                 ['gen_random', {"size": 101, "p": 0.05}, p1_fixed, np.linspace(12, 13, 10).tolist()],
                  ['gen_random', {"size": 101, "p": 0.1}, p1_fixed, np.linspace(22, 23, 10).tolist()],
-                 #['gen_random', {"size": 101, "p": 0.15}, p1_fixed, np.linspace(30, 35, 10).tolist()],
-                 ['gen_random', {"size": 151, "p": 1/30}, p1_fixed, np.linspace(11, 12, 10).tolist()],
-                 ['gen_random', {"size": 151, "p": 2/30}, p1_fixed, np.linspace(21, 22, 10).tolist()],
-                 ['gen_random', {"size": 151, "p": 0.1}, p1_fixed, np.linspace(30, 35, 10).tolist()]]
-# NETWORK_TYPES = [['gen_random', {'size': 5, 'p': 0.4}, np.arange(1, 3, 1).tolist(), np.arange(1, 3, 1).tolist()]]
+                 ['gen_random', {"size": 101, "p": 0.15}, p1_fixed, np.linspace(30, 35, 10).tolist()],
+                 # ['gen_random', {"size": 151, "p": 1/30}, p1_fixed, np.linspace(11, 12, 10).tolist()],
+                 # ['gen_random', {"size": 151, "p": 2/30}, p1_fixed, np.linspace(21, 22, 10).tolist()],
+                 # ['gen_random', {"size": 151, "p": 0.1}, p1_fixed, np.linspace(30, 35, 10).tolist()],
+]
+NETWORK_TYPES = [['gen_random', {'size': 5, 'p': 0.4}, np.arange(1, 5, 1).tolist(), np.arange(0.1, 20)]]
 RUNS_PER_TYPE = 1
 DT = 1e-1
 STABTOL = 1e-4
@@ -64,6 +65,32 @@ def get_equilibrium(p1_range, p2_range, netw: Network):
     return results
 
 
+def get_critical_points(p1_range, p2_min, p2_max, netw: Network, tolerance=1e-1):
+    results = []
+    metric = np.linalg.norm
+    tupled_w = tuple(tuple(row) for row in netw.adj_matrix)
+    for p1 in p1_range:
+        p2_low, p2_high = p2_min, p2_max
+        count = 0
+        while (p2_high - p2_low) > tolerance:
+            count += 1
+            p2_mid = (p2_low + p2_high) / 2
+
+            def reduced_interact(x, y): return interact(x, y, p1, p2_mid)  # p1=tau, p2=mu
+            def integrator(arr): return dx_dt(tuple(arr), decay, reduced_interact, tupled_w)
+            x0 = 100 * netw.size * np.random.random_sample(netw.size)
+            res = stability_run(integrator, DT, STABTOL, x0)
+            results.append([p1, p2_mid, x0.tolist(), res[0].tolist()])
+
+            if metric(res[0]) > 1e-2:
+                p2_low = p2_mid
+            else:
+                p2_high = p2_mid
+        print(count)
+
+    return results
+
+
 def get_lambda_stars(p1_range, p2_range):
     """Calls find_lambda_star a fixed amount of time, a lot of which is wasted"""
     ti, count = time.time(), 0
@@ -86,11 +113,11 @@ def make_network(network_generator: str, network_params: dict):
     return netw
 
 
-def run(i, run_number):
-    network_type = NETWORK_TYPES[i][0]
-    network_param = NETWORK_TYPES[i][1]
-    p1_range = NETWORK_TYPES[i][2]
-    p2_range = NETWORK_TYPES[i][3]
+def run(index, run_number):
+    network_type = NETWORK_TYPES[index][0]
+    network_param = NETWORK_TYPES[index][1]
+    p1_range = NETWORK_TYPES[index][2]
+    p2_range = NETWORK_TYPES[index][3]
     filename = "data/3dot3_" + network_type
     for key, value in network_param.items():
         filename += f"_{key}={value}"
@@ -104,13 +131,14 @@ def run(i, run_number):
     t0 = time.time()
           
     net = make_network(network_type, network_param)
-    equilibria = get_equilibrium(p1_range, p2_range, net)
+    # equilibria = get_equilibrium(p1_range, p2_range, net)  # Non optimized
+    equilibria = get_critical_points(p1_range, min(p2_range), max(p2_range), net)
     # lstars = get_lambda_stars(P1_RANGE, P2_RANGE)  # This is a waste of time (each process does it)
     equilibria = list(map(list, zip(*equilibria)))
     # equilibria, lstars = np.array(equilibria).T.tolist(), np.array(lstars).T.tolist()
 
-    with open(filename, "w") as f:
-        json.dump([net.adj_matrix.tolist(), equilibria], f)
+    with open(filename, "w") as grape_juice:
+        json.dump([net.adj_matrix.tolist(), equilibria], grape_juice)
         
     print(f"finished {filename} in {format_time_elapsed(time.time()-t0)}")
     get_cached_performance()
@@ -120,7 +148,7 @@ if __name__ == "__main__":
     print("----- PROGRAM STARTED -----\n")
     generating_data = int(input("Would you like to generate data/plots? [1/0]: "))
     start = time.time()
-    if generating_data:
+    if generating_data == 1:
         print("CPU Count:", os.cpu_count())
         futs = []
         for i in range(len(NETWORK_TYPES)):
@@ -131,21 +159,22 @@ if __name__ == "__main__":
         for f in futs:
             f.join()
         
-    else:
+    elif generating_data == 0:
         filenames = []
         for i in range(len(NETWORK_TYPES)):
             for j in range(RUNS_PER_TYPE):
-                network_type, network_param, p1_range, p2_range, run_number = NETWORK_TYPES[i][0], NETWORK_TYPES[i][1], NETWORK_TYPES[i][2], NETWORK_TYPES[i][3], j + 1
-                filename = "data/3dot3_" + network_type
-                for key, value in network_param.items():
+                network_t, network_p = NETWORK_TYPES[i][0], NETWORK_TYPES[i][1]
+                p1_r, p2_r, run_num = NETWORK_TYPES[i][2], NETWORK_TYPES[i][3], j + 1
+                filename = "data/3dot3_" + network_t
+                for key, value in network_p.items():
                     filename += f"_{key}={value}"
-                if run_number > 1:
-                    filename += f"_{run_number}"
-                filename += f"_[{min(p1_range)},{max(p1_range)}]x[{min(p2_range)},{max(p2_range)}]"
+                if run_num > 1:
+                    filename += f"_{run_num}"
+                filename += f"_[{min(p1_r)},{max(p1_r)}]x[{min(p2_r)},{max(p2_r)}]"
 
                 filename += f"_DT={DT}_STABTOL={STABTOL}.txt"
                 filenames.append(filename)
-                
+
         for filename in filenames:
             with open(filename, "r") as f:
                 data = json.load(f)  
