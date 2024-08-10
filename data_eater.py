@@ -44,25 +44,32 @@ def one_laurence(res, adj_matrix, decay_func, interact_func):
 
 
 def reduce(A):
-    """Return the one dimensional Laurence reduction parameters"""
+    """Return the one dimensional Laurence reduction parameters
+
+    returns a, alpha, beta"""
     eigs, vecs = np.linalg.eig(np.transpose(A))
     sorted_indices = sorted(range(len(eigs)), key=lambda i: np.linalg.norm(eigs[i]), reverse=True)
-    if A.all() >= 0:
+    if sum([sum([entry < 0 for entry in row]) for row in A]) == 0:
         # If nonnegative, PF guarantees nonnegative dominant eigenvalue and -vector
         i = 0
         k = sorted_indices[i]
         while 0 < sum(c < 0 for c in vecs[:, k]) < A.shape[0]:
             i += 1
-            k = sorted_indices[i]
+            if i < len(sorted_indices):
+                k = sorted_indices[i]
+            else:
+                k = sorted_indices[0]
+                print(f"No nonnegative eigenvector found! Using: {vecs[:, k]}")
+                break
     else:
         k = sorted_indices[0]
     a = vecs[:, k] / sum(vecs[:, k])
     alpha = eigs[k]
     K = np.diag([sum(A[i, :]) for i in range(A.shape[0])])
     beta = a @ K @ np.transpose(a) / (a @ np.transpose(a) * alpha)
-    a = real(a)
-    alpha = real(alpha)
-    beta = real(beta)
+    # a = real(a)
+    # alpha = real(alpha)
+    # beta = real(beta)
     return a, alpha, beta
 
 

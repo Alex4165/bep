@@ -1,63 +1,85 @@
-from model import Model
-from auxiliary_functions import RK4step, dx_dt
+from model import Model, stability_run
+from auxiliary_functions import RK4step, dx_dt, exp, plot_solution
 from data_eater import reduce
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-size = 5
+from network_class import Network
 
-W0 = np.array([[0.52829123, -0.12620005, 0.07649462, -0.51603925, 0.3324112],
-               [-0.65911129, -0.2884593, 0.35157307, -0.61664797, -0.47923406],
-               [-0.95658735, -0.99555071, 0.61247847, 0.57499545, -0.185355],
-               [-0.63192054, -0.36443042, 0.76658192, -0.94645962, 0.85193479],
-               [-0.41915602, -0.02816688, -0.39475975, -0.48100525, 0.8211069]])
-
-F = lambda x: -x**3
-G = lambda x, y: (1-x)*y
-
-model = Model(W0, F, G)
-for step in range(0, int(size*size/1.5), max(int(size*size/15), 1)):
-    if step > 0:
-        break
-    W = np.copy(W0)
-    # coords = [(i, j) for i in range(W.shape[0]) for j in range(W.shape[1])]
-    # for n in range(int(size**2/1.5)):
-    #     i, j = coords[np.random.randint(len(coords))]
-    #     W[i, j] = -np.random.rand()
-    #     coords.remove((i, j))
-    # model.W = W
-
-    dt, stabtol, x0 = 1e-2, 1e-3, 0.5*np.random.rand(size)+0.25
-    av_k_in = round(np.transpose(np.ones(size)) @ W @ np.ones(size)/size, 2)
-
-    model.laurence_multi_dim_analysis_run(x0=x0, dt=dt, stabtol=stabtol)
-
-    func = lambda arr: dx_dt(tuple(arr), F, G, tuple(tuple(row) for row in W))
-    xf, N = stability_run(dt=dt, stabtol=stabtol, x0=x0, debugging=2, title=f"step {step}, kin {av_k_in}")
-    print("normed eigs", np.sort(np.absolute(np.linalg.eig(W)[0])))
-    a, alpha, beta = reduce(W)
-    f = lambda R: F(R) + alpha * G(beta*R, R)
-
-    Rs = [a @ x0]
-    for i in range(N-1):
-        R = Rs[-1]
-        dR = RK4step(dt, f, Rs[-1])
-        Rs.append(Rs[-1] + dR)
-
-    print("error:", np.absolute(a @ xf - Rs[-1]), "step", step)
-    # print(W)
-
-    plt.plot([i*dt for i in range(N)], np.absolute(Rs))
-    plt.title(f"R amplitude, step {step}")
-    plt.show()
-
-    plt.plot([i*dt for i in range(N)], np.angle(Rs))
-    plt.title(f"R argument, step {step}")
-    plt.show()
-
-    print()
+SIZE = 2
+TAU = 1.3
+MU = 4
+DT = 1e-1
+STABTOL = 1e-4
+ALPHAS = np.linspace(0.1, 5, 1)
+P = [1.2, 0]
+# P = np.zeros(SIZE)
+# P[0] = 10*np.random.random()
 
 
+def Z(x):
+    num = 1 / (1 + exp(TAU * (MU - x))) - 1 / (1 + exp(TAU * MU))
+    den = 1 - 1 / (1 + exp(TAU * MU))
+    return num / den
 
 
+net = Network()
+error = 1e-2+1e-18
+while error > 1e-2:
+    net.gen_random(size=SIZE, p=0.3)
+    # net.gen_hub(size=SIZE, minimum_deg=int(10*P))
+    # net.gen_small_world(size=SIZE, k=int(10*P)+1, p=0.4)
+    net.randomize_weights(lambda x: 50 * x - 25)
+    net.plot_graph()
+    A_zero = net.adj_matrix
+    a, alpha_zero, beta = reduce(A_zero)
+    b_zero = np.linalg.lstsq(A_zero, np.ones(SIZE), rcond=None)[0]
+    error = np.linalg.norm(A_zero @ b_zero - np.ones(SIZE))
+    error = 0
+print(error)
+
+sims, preds, nonlinearity_errors = [], [], []
+for alpha_ in ALPHAS:
+    # A = alpha * A_zero / alpha_zero
+    A = np.array([[16, -12],
+                 [15, -0.1]])
+    a, alpha, _ = reduce(A)
+    gamma = a @ P
+    # b = np.linalg.lstsq(A, np.ones(SIZE), rcond=None)[0]
+    # b = alpha_zero * b_zero / alpha
+    # error = np.linalg.norm(A @ b - np.ones(SIZE))
+
+
+    def model_f(arr):
+        k = A @ arr
+        return -arr + [Z(k[i] + P[i]) for i in range(len(arr))]
+
+
+    def red_f(arr):
+        return -arr[0] + Z(alpha * arr[0] + gamma)
+
+
+    x0 = 0.1*np.ones(SIZE)
+    sim = stability_run(model_f, DT, None, x0, debugging=2, title='Simulation', max_run_time=41)
+    pred = stability_run(red_f, DT, None, [a @ x0], debugging=2, title='Prediction', max_run_time=41)
+
+    # for x in sim[2]:
+    #     total = 0
+    #     for i, c in enumerate(x):
+    #         total += a[i] * Z()
+
+    sims.append(a @ sim[0])
+    preds.append(pred[0][0])
+    print("Simulation:", a @ sim[0], "Prediction:", pred[0][0])
+    nonlinearity_errors.append(error)
+
+plt.plot(ALPHAS, sims, '.', label='Simulation')
+plt.plot(ALPHAS, preds, '.', label='Prediction')
+plt.legend()
+plt.show()
+
+plt.plot(ALPHAS, [abs(s-p) for s, p in zip(sims, preds)], '.', label='Absolute error')
+plt.plot(ALPHAS, np.array(nonlinearity_errors), '.', label='Nonlinearity error')
+plt.legend()
+plt.show()

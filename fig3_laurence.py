@@ -31,7 +31,7 @@ def f(x): return -x
 def g(x, y): return 1 / (1 + exp(tau * (mu - y)))
 
 
-one_d = True
+one_d = False
 # One dimensional
 if one_d:
     alpha_zero = np.linalg.norm(max(np.linalg.eigvals(A), key=lambda x: np.linalg.norm(x)))

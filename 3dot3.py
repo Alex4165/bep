@@ -31,8 +31,8 @@ p1_fixed = [0.1, 0.5, 1, 1.5, 2, 3, 4, 5, 7.5, 10]
 # ]
 NETWORK_TYPES = []
 SIZES = [10,
-         # 20, 30,
-         # 40, 50, 60, 70, 80
+         20, 30,
+         40, 50, 60, 70, 80
          ]
 for size in SIZES:
     for av_deg in [1, 5, 10, 15, 25]:
@@ -257,48 +257,49 @@ if __name__ == "__main__":
                 filename += f"_DT={DT}_STABTOL={STABTOL}.txt"
                 filenames.append(filename)
 
+        print("Generating plots for:")
+        for name in filenames:
+            print(name)
+
         for filename in filenames:
             with open(filename, "r") as f:
                 data = json.load(f)
 
-                A = np.array(data[0])
-                p1_r = np.unique(data[1][0])
-                km, rh = kmax(A), rho(A)
+            A = np.array(data[0])
+            p1_r = np.unique(data[1][0])
+            km, rh = kmax(A), rho(A)
 
-                actual_p1s, actual_p2s = get_data_critical_eq(data)
-                x_range = [0.1*(i+1) for i in range(10)] + [1+i*0.5 for i in range(10)] + [i for i in range(5, 11)]
-                x_range = p1_r
-                kmax_p1s, kmax_p2s = get_critical_ls(x_range, 0, 200, km)
-                rho_p1s, rho_p2s = get_critical_ls(x_range, 0, 200, rh)
+            actual_p1s, actual_p2s = get_data_critical_eq(data)
+            x_range = [0.1*(i+1) for i in range(10)] + [1+i*0.5 for i in range(10)] + [i for i in range(5, 11)]
+            kmax_p1s, kmax_p2s = get_critical_ls(x_range, 0, 200, km)
+            rho_p1s, rho_p2s = get_critical_ls(x_range, 0, 200, rh)
 
-                plt.plot(actual_p1s, actual_p2s, 'k.', label="actual")
-                # plt.plot(kmax_p1s, kmax_p2s, color='#77DD77', alpha=0.5, label="kmax")
-                # plt.plot(rho_p1s, rho_p2s, color='red', alpha=0.5, label="rho")
+            plt.plot(actual_p1s, actual_p2s, 'k.', label="actual")
+            plt.plot(kmax_p1s, kmax_p2s, color='#77DD77', alpha=0.5, label="kmax")
+            plt.plot(rho_p1s, rho_p2s, color='red', alpha=0.5, label="rho")
 
-                ymin, ymax = plt.gca().get_ylim()
-                plt.fill_between(kmax_p1s, kmax_p2s, ymin, alpha=0.5, color='#77DD77')
-                plt.fill_between(rho_p1s, rho_p2s, ymax, alpha=0.5, color="red")
+            ymin, ymax = plt.gca().get_ylim()
+            plt.fill_between(kmax_p1s, kmax_p2s, ymin, alpha=0.5, color='#77DD77')
+            plt.fill_between(rho_p1s, rho_p2s, ymax, alpha=0.5, color="red")
 
-                plt.xlabel("Tau")
-                plt.ylabel("Mu")
-                title = (filename.replace("_", " ")
-                                 .replace("data/3dot3 ", "")
-                                 .replace(".txt", "")
-                                 .replace("gen random", "ER"))
-                plt.title(title)
-                plt.legend()
-                plt.show()
+            plt.xlabel("Tau")
+            plt.ylabel("Mu")
+            # plt.legend()
+            plt.savefig(filename.replace(".txt", ".png"), dpi=300)
+            plt.show()
 
-                # lambda_stars = [find_lambda_star((p1, p2)) for (p1, p2) in zip(data[1][0], data[1][1])]
-                # lower_bound_alpha = np.where(lambda_stars <= km, 1, 0)
-                # upper_bound_alpha = np.where(lambda_stars >= rh, 1, 0)
-                # plt.scatter(data[1][0], data[1][1], c='green', s=100, alpha=lower_bound_alpha)
-                # plt.scatter(data[1][0], data[1][1], c='red', s=100, alpha=upper_bound_alpha)
-                # plt.scatter(data[1][0], data[1][1], c=[np.linalg.norm(x) for x in data[1][3]], cmap="viridis")
-                # plt.ylim(top=max(max(actual_p2s), max(rho_p2s), max(kmax_p2s))+0.1,
-                #          bottom=min(min(actual_p2s), min(rho_p2s), min(kmax_p2s))-0.1)
-                # plt.colorbar()
-                # plt.show()
+            get_cached_performance()
+
+            # lambda_stars = [find_lambda_star((p1, p2)) for (p1, p2) in zip(data[1][0], data[1][1])]
+            # lower_bound_alpha = np.where(lambda_stars <= km, 1, 0)
+            # upper_bound_alpha = np.where(lambda_stars >= rh, 1, 0)
+            # plt.scatter(data[1][0], data[1][1], c='green', s=100, alpha=lower_bound_alpha)
+            # plt.scatter(data[1][0], data[1][1], c='red', s=100, alpha=upper_bound_alpha)
+            # plt.scatter(data[1][0], data[1][1], c=[np.linalg.norm(x) for x in data[1][3]], cmap="viridis")
+            # plt.ylim(top=max(max(actual_p2s), max(rho_p2s), max(kmax_p2s))+0.1,
+            #          bottom=min(min(actual_p2s), min(rho_p2s), min(kmax_p2s))-0.1)
+            # plt.colorbar()
+            # plt.show()
     
     print("\n----- PROGRAM FINISHED -----")
     print(f"Took: {format_time_elapsed(time.time()-start)}")

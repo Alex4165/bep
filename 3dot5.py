@@ -18,7 +18,7 @@ SIZE = 12
 P = 0.2
 TAU = 1
 MU = 3
-DIM = 1
+DIM = 2
 ALPHAS = np.linspace(1, 25, 50)
 
 
@@ -52,6 +52,7 @@ def gen_alpha_dependence():
             simulation_res, prediction, a, alphas, betas = model.laurence_multi_dim_analysis_run(x0=x0, dim=DIM, dt=DT,
                                                                                                  stabtol=STABTOL,
                                                                                                  debugging=0)
+
             if np.mean(alphas) - alpha > 0.1:
                 print(np.mean(alphas), alpha)
                 model.laurence_multi_dim_analysis_run(x0=x0, dim=DIM, dt=DT, stabtol=STABTOL)

@@ -35,7 +35,7 @@ def calculate_a1a2(c_arr, w_t, vs):
 def stability_run(func: Callable[[List[float]], List[float]], dt, stabtol, x0, debugging=0, title="Stability",
                   max_run_time=50) -> (list[float], int, list[list[float]]):
     """Calculates a network until stability has been reached. \n
-    If stabtol is set to None, then the first 50 seconds are calculated regardless.\n
+    If stabtol is set to None, then the first max_run_time seconds are calculated regardless.\n
     Debugging=0 no plots, =1 full debug, =2 only the final plot.\n
     Returns the stable solution vector and the index at stability and a list of xs over time."""
     normF = 100  # Some large number

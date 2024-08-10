@@ -152,7 +152,7 @@ def get_cached_performance():
     print()
 
 
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=1024)
 def dx_dt(x: tuple, F: Callable[[float], float], G: Callable[[float, float], float], W: tuple):
     """The N-dimensional function determining the derivative of x."""
     f = np.zeros(len(x))
@@ -178,7 +178,7 @@ def format_time_elapsed(elapsed_time):
             f"{round(elapsed_time % 60)} s")
 
 
-@lru_cache(maxsize=None, typed=False)
+@lru_cache(maxsize=30000, typed=False)
 def find_lambda_star(parameters: Tuple[float, float],
                      lower_bound=0.0, upper_bound=1e4, accuracy=1e-3):
     """Decay and interaction function are hardcoded!"""
