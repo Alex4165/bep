@@ -91,7 +91,7 @@ def rootfinder(f, interval, etol=1e-2, N=1000, do_initial_search=True, speak=Fal
     return roots
 
 
-@lru_cache(maxsize=None)
+@lru_cache()
 def exp(x):
     return np.exp(x)
 
@@ -102,23 +102,29 @@ def plot_solution(dt, title, xs, saving=False):
         plt.title(title)
         plt.xlabel("Time (s)")
         plt.ylabel("Magnitude")
-        plt.show()
+        if not saving:
+            plt.title(title)
+            plt.show()
 
-        plt.plot([dt * n for n in range(len(xs))], np.angle(xs))
-        plt.title(title)
-        plt.xlabel("Time (s)")
-        plt.ylabel("Phase (radians)")
-        plt.show()
+            # plt.plot([dt * n for n in range(len(xs))], np.angle(xs))
+            # plt.title(title)
+            # plt.xlabel("Time (s)")
+            # plt.ylabel("Phase (radians)")
+            # plt.show()
+        else:
+            # We only save the magnitude plot
+            plt.savefig("data/"+title+".png")
+            plt.clf()
     else:
         plt.plot([dt * n for n in range(len(xs))], xs)
         plt.xlabel("Time (s)")
         plt.ylabel("Activity")
         if not saving:
             plt.title(title)
+            plt.show()
         else:
-            plt.savefig("data/"+title+".pdf")
-
-        plt.show()
+            plt.savefig("data/"+title+".png")
+            plt.clf()
 
 
 def is_eig_vec(vec, matrix):

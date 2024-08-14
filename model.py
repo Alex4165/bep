@@ -55,6 +55,8 @@ def stability_run(func: Callable[[List[float]], List[float]], dt, stabtol, x0, d
             plt.show()
             time.sleep(1)
         i += 1
+    # if i >= max_run_time/dt:
+    #     plot_solution(dt, title, xs, saving=True)
 
     if debugging > 0:
         plot_solution(dt, title, xs)

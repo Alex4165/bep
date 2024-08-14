@@ -21,8 +21,8 @@ kouts = np.arange(2, 10, 0.2)
 A = np.zeros((size, size))
 A[0, 1:] = np.array([center_in for i in range(size - 1)])
 A[1:, 0] = np.array([center_out for i in range(size - 1)]).T
-A[0, 1:] = 2 * np.random.random_sample(size - 1)
-A[1:, 0] = np.random.random_sample(size - 1).T
+# A[0, 1:] = 2 * np.random.random_sample(size - 1)
+# A[1:, 0] = np.random.random_sample(size - 1).T
 
 
 def f(x): return -x
@@ -31,14 +31,13 @@ def f(x): return -x
 def g(x, y): return 1 / (1 + exp(tau * (mu - y)))
 
 
-one_d = False
+one_d = True
 # One dimensional
 if one_d:
     alpha_zero = np.linalg.norm(max(np.linalg.eigvals(A), key=lambda x: np.linalg.norm(x)))
     results = [[], [], []]
     t1 = time.time()
     for alpha in alphas:
-        print(alpha, time.time()-t1)
         t1 = time.time()
         w = alpha / alpha_zero * A
         model = Model(F=f, G=g, W=w)
@@ -48,7 +47,7 @@ if one_d:
         alpha_, sim_large, pred, _ = model.laurence_one_dim_analysis_run(large_x0, dt, stabtol)
         sim_small = model.laurence_one_dim_analysis_run(small_x0, dt, stabtol)[1]
         if abs(alpha - alpha_) > 0.1:
-            print("OH FUCK:", alpha, alpha_)
+            print("OH:", alpha, alpha_)
             reduce(w)
         for p in pred:
             for sim in [sim_small, sim_large]:
