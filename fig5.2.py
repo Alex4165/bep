@@ -5,20 +5,20 @@ from data_eater import reduce
 from model import stability_run
 import matplotlib.pyplot as plt
 
-taus = np.linspace(0.5, 5, 2)
-mus = np.linspace(0, 4.5, 2)
+taus = np.linspace(0.5, 5, 15)
+mus = np.linspace(0, 4.5, 15)
 MUS, TAUS = np.meshgrid(mus, taus)
 ERRORS = np.zeros(MUS.shape)
 
-SIZE = 10
+SIZE = 6
 DT = 1e-1
 STABTOL = 1e-4
 MAX_RUN_TIME = 100
 PROB_INHIB = 0.5
 P_0 = 0.2
 SCALE = 3
-RUNS_PER_POINT = 15
-NUM_ALPHAS = 20
+RUNS_PER_POINT = 50
+NUM_ALPHAS = 10
 
 print(f"{len(mus) * len(taus) * RUNS_PER_POINT * NUM_ALPHAS} simulations will be run at dt={DT}")
 
@@ -37,7 +37,7 @@ def proposed_eig(A, speak=False):
     norms = []
     for ix in range(SIZE):
         a_ix = vecs[:, ix] / sum(vecs[:, ix])
-        norms.append(np.linalg.norm(a_ix - 1))
+        norms.append(np.linalg.norm(a_ix))
     eig_i = np.argmin(norms)
     a, alpha = vecs[:, eig_i] / sum(vecs[:, eig_i]), eigs[eig_i]
     if speak:
@@ -48,17 +48,18 @@ def proposed_eig(A, speak=False):
 start = time.time()
 for q in range(RUNS_PER_POINT):
     # Generate network
-    columns = []
-    for k in range(SIZE):
-        col = np.random.choice([1., 0.], size=SIZE, p=[1 - P_0, P_0])
-        col *= np.random.exponential(scale=SCALE, size=SIZE)
-        if np.random.random() < PROB_INHIB:
-            col *= -1
-        columns.append(col)
-    A = np.column_stack(columns)
+    is_multi_dim = True
+    while is_multi_dim:
+        columns = []
+        for k in range(SIZE):
+            col = np.random.choice([1., 0.], size=SIZE, p=[1 - P_0, P_0])
+            col *= np.random.exponential(scale=SCALE, size=SIZE)
+            if np.random.random() < PROB_INHIB:
+                col *= -1
+            columns.append(col)
+        A = np.column_stack(columns)
+        a, alpha_zero, is_multi_dim = proposed_eig(A, speak=True)
     print(f"Eigenvalues run={q}: {np.linalg.eigvals(A)}")
-
-    a, alpha_zero, is_multi_dim = proposed_eig(A, speak=True)
     print(f"Chosen eig: {alpha_zero}")
 
     # Compute invertibility error (we assume P = 0)
@@ -83,7 +84,7 @@ for q in range(RUNS_PER_POINT):
             error_area = 0
 
             # temp
-            preds, sims = [], []
+            preds, sims, diff = [], [], []
             for ideal_alpha in alphas:
                 # Shift W to have the almost alpha
                 W = ideal_alpha * A / np.real(alpha_zero)
@@ -110,23 +111,42 @@ for q in range(RUNS_PER_POINT):
                 # temp
                 preds.append(np.abs(pred[0][0]))
                 sims.append(np.abs(a @ sim[0]))
+                diff.append(np.abs(a @ sim[0] - pred[0][0]))
 
             # temp
-            if saved <= 2:
+            if error_area > 2:
                 saved += 1
                 plt.figure(figsize=(5, 4), dpi=400)
                 plt.plot(alphas, preds, '.', label='Pred')
                 plt.plot(alphas, sims, '.', label='Sim')
+                bottom, top = plt.gca().get_ylim()
+                if 0 < bottom:
+                    plt.ylim(bottom=0)
+                if top < 1:
+                    plt.ylim(top=1)
                 plt.fill_between(alphas, preds, sims, alpha=0.5, color='grey')
                 # plt.axvline(pred_alpha, color='r', label='Pred alpha')
                 # plt.title(f"tau={tau}, mu={mu}")
                 plt.xlabel("Alpha (real)")
                 plt.ylabel("R")
                 plt.legend()
-                plt.savefig(f'data/fig5.2_tau={tau}_mu={mu}_error={round(error_area,1)}.png')
+                plt.savefig(f'data/fig5.2_tau={tau}_mu={mu}_error={round(error_area,1)}_double_choice={is_multi_dim}.png')
                 plt.title(is_multi_dim)
                 plt.show()
 
+            # plt.figure(figsize=(5, 4), dpi=400)
+            # plt.plot(alphas, diff, '.', label='diff')
+            # plt.fill_between(alphas, [0 for _ in diff], diff, alpha=0.5, color='grey')
+            # bottom, top = plt.gca().get_ylim()
+            # if 0 < bottom:
+            #     plt.ylim(bottom=0)
+            # if top < 1:
+            #     plt.ylim(top=1)
+            # plt.xlabel("Alpha (real)")
+            # plt.ylabel("R")
+            # plt.legend()
+            # plt.title(is_multi_dim)
+            # plt.show()
             ERRORS[i, j] += error_area
 
     print(f"Estimated {format_time_elapsed((time.time() - start) / (q + 1) * (RUNS_PER_POINT - q - 1))} remaining\n")

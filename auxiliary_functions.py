@@ -28,52 +28,40 @@ def RK4step(dt, func, x):
 def rootfinder(f, interval, etol=1e-2, N=1000, do_initial_search=True, speak=False):
     """Finds roots in the interval=[a,b] for function f by the bisection method
     after splitting the interval into N segments of the interval"""
-    if speak:
-        print("Hi! I'm gonna do my best for you :)")
     roots = []
-    t0 = time.time()
 
     if do_initial_search:
         xs = np.linspace(interval[0], interval[1], N)
         left_bounds = []
 
-        t1 = t0
         y1 = f(xs[0])
         for i in range(1, len(xs)):
-            if time.time() - t1 > 30 and speak:
-                print(f"Still working on it! {round(100*(i+1)/len(xs))}% done. "
-                      f"Takes {(time.time()-t0)/(2*(i+1))} s per call so "
-                      f"around {(time.time()-t0)/(i+1)*(len(xs)-i-1)} s left.")
-                t1 = time.time()
             y2 = f(xs[i])
             if y1 * y2 < 0:
                 left_bounds.append(i-1)
             y1 = y2
 
-        if speak:
-            print(f"Took me {time.time()-t0} seconds to find the location of {len(left_bounds)} zero(s).")
     else:
         left_bounds = [0]
         xs = interval
 
     for i in left_bounds:
         x1, x2 = xs[i], xs[i+1]
-        zero = f(xs[i])
-        best_zero = zero
+        y1, y2 = f(x1), f(x2)
+
+        best_zero = f(x1)
         best_guess = x1
 
         count = 0
         while abs(best_zero) > etol:
-            if speak:
-                print(f"my best guess f({best_guess})={best_zero}")
-                print(f"my accuracy: {x2-x1}\n")
-
             m = (x1+x2)/2
-            y1, ym, y2 = f(x1), f(m), f(x2)
+            ym = f(m)
             if y1 * ym < 0:
                 x2 = m
+                y2 = ym
             elif ym * y2 < 0:
                 x1 = m
+                y1 = ym
 
             # Computationally inexpensive way to find the best zero earlier
             k = np.argmin([np.abs(y1), np.abs(ym), np.abs(y2)])
@@ -82,12 +70,6 @@ def rootfinder(f, interval, etol=1e-2, N=1000, do_initial_search=True, speak=Fal
             count += 1
 
         roots.append(best_guess)
-        if speak:
-            print("Found a zero at", best_guess, "with value", best_zero, "\n")
-
-    if speak:
-        print(f"Overall took me {round(time.time()-t0, 1)} seconds to find the zeros.")
-    print(f"found root in {count} step")
     return roots
 
 
@@ -188,15 +170,14 @@ def format_time_elapsed(elapsed_time):
 def find_lambda_star(parameters: Tuple[float, float],
                      lower_bound=0.0, upper_bound=1e4, accuracy=1e-3):
     """Decay and interaction function are hardcoded!"""
-    def pos_decay_func(x, tau, mu): return -x
-    def pos_interaction_func(x, y, tau, mu): return 1/(1+exp(tau*(mu-y))) - 1/(1+exp(tau*mu))
+    def z(x, tau, mu): return (1/(1+exp(tau*(mu-x))) - 1/(1+exp(tau*mu)))/(1 - 1/(1+exp(tau*mu)))
 
     guess = (lower_bound + upper_bound) / 2
 
     if upper_bound - lower_bound < accuracy:
         return guess
 
-    def f(x): return pos_decay_func(x, *parameters) + guess * pos_interaction_func(x, x, *parameters)
+    def f(x): return -x + z(guess * x, *parameters)
 
     is_nonzero_root = False
     xs = np.linspace(-1e-3, upper_bound, max(1000, int(10*upper_bound)))

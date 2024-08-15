@@ -73,3 +73,13 @@ class Network:
             self.adj_matrix = np.multiply(self.adj_matrix, random_adjustments)
         else:
             raise ValueError("No network to speak of!")
+
+    def exp_weights(self, scale=1, symmetric=True):
+        """Reweight the network with exponentially distributed weights."""
+        if self.adj_matrix is not None:
+            random_adjustments = np.random.exponential(scale, (self.size, self.size))
+            if symmetric:
+                random_adjustments = (random_adjustments + random_adjustments.T)/2
+            self.adj_matrix = np.multiply(self.adj_matrix, random_adjustments)
+        else:
+            raise ValueError("No network to speak of!")

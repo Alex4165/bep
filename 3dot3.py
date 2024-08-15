@@ -17,7 +17,7 @@ import multiprocessing
 # --- Section 3.3: Wu Rigorous bounds applied --- #
 
 # Parameters
-p1_fixed = [0.1, 0.5, 1, 1.5, 2, 3, 4, 5, 7.5, 10]
+p1_fixed = np.linspace(0, 10, 50).tolist()
 # NETWORK_TYPES = [
 #                  ['gen_random', {"size": 51, "p": 0.1}, p1_fixed, np.linspace(9, 20, 10).tolist()],
 #                  ['gen_random', {"size": 51, "p": 0.2}, p1_fixed, np.linspace(15, 30, 10).tolist()],
@@ -30,12 +30,12 @@ p1_fixed = [0.1, 0.5, 1, 1.5, 2, 3, 4, 5, 7.5, 10]
 #                  ['gen_random', {"size": 151, "p": 0.1}, p1_fixed, np.linspace(25, 50, 10).tolist()],
 # ]
 NETWORK_TYPES = []
-SIZES = [10,
-         20, 30,
-         40, 50, 60, 70, 80
+SIZES = [30,
+         # 20, 30,
+         # 40, 50, 60, 70, 80
          ]
 for size in SIZES:
-    for av_deg in [1, 5, 10, 15, 25]:
+    for av_deg in np.arange(1, size, 5):
         if av_deg <= size-1:
             NETWORK_TYPES.append(['gen_random',
                                   {"size": size, "p": av_deg/(size-1)},
@@ -45,7 +45,7 @@ for size in SIZES:
 RUNS_PER_TYPE = 1
 DT = 1e-1
 STABTOL = 1e-4
-def WEIGHT_FUNCTION(x): return 5*x + 1
+def WEIGHT_FUNCTION(x): return 1
 
 
 # Dynamic equations (we assume all model have the same dynamic equations)
@@ -53,33 +53,33 @@ def decay(x):
     return -x
 
 
-def interact(x, y, tau, mu):
-    return 1 / (1 + exp(tau * (mu - y))) - 1 / (1 + exp(tau * mu))
+def z(x, tau, mu):
+    return (1 / (1 + exp(tau * (mu - x))) - 1 / (1 + exp(tau * mu)))/(1 - 1 / (1 + exp(tau * mu)))
 
 
-def get_equilibrium(p1_range, p2_range, netw: Network):
-    results = []
-    metric = np.linalg.norm
-    tupled_w = tuple(tuple(row) for row in netw.adj_matrix)
+# def get_equilibrium(p1_range, p2_range, netw: Network):
+#     results = []
+#     metric = np.linalg.norm
+#     tupled_w = tuple(tuple(row) for row in netw.adj_matrix)
+#
+#     ti, count = time.time(), 0
+#     for p1 in p1_range:
+#         for p2 in p2_range:
+#             def reduced_interact(x, y): return interact(x, y, p1, p2)  # p1=tau, p2=mu
+#             def integrator(arr): return dx_dt(tuple(arr), decay, reduced_interact, tupled_w)
+#             x0 = 100 * netw.size * np.random.random_sample(netw.size)
+#             res = stability_run(integrator, DT, STABTOL, x0)
+#             results.append([p1, p2, x0.tolist(), res[0].tolist()])
+#
+#         count += 1
+#         print(f"Process {os.getpid()}"
+#               f"\tget_equilibrium {round(100*count/len(p1_range))}% completed"
+#               f"\taverage duration: {format_time_elapsed((time.time()-ti)/count)}"
+#               f"\texpected time left: {format_time_elapsed((time.time()-ti)/count*(len(p1_range)-count))}")
+#     return results
 
-    ti, count = time.time(), 0
-    for p1 in p1_range:
-        for p2 in p2_range:
-            def reduced_interact(x, y): return interact(x, y, p1, p2)  # p1=tau, p2=mu
-            def integrator(arr): return dx_dt(tuple(arr), decay, reduced_interact, tupled_w)
-            x0 = 100 * netw.size * np.random.random_sample(netw.size)
-            res = stability_run(integrator, DT, STABTOL, x0)
-            results.append([p1, p2, x0.tolist(), res[0].tolist()])
 
-        count += 1
-        print(f"Process {os.getpid()}"
-              f"\tget_equilibrium {round(100*count/len(p1_range))}% completed"
-              f"\taverage duration: {format_time_elapsed((time.time()-ti)/count)}"
-              f"\texpected time left: {format_time_elapsed((time.time()-ti)/count*(len(p1_range)-count))}")
-    return results
-
-
-def get_critical_points(p1_range, p2_min, p2_max, netw: Network, tolerance=1e-1):
+def get_critical_points(p1_range, p2_min, p2_max, netw: Network, tolerance=1e-2):
     """Currently assumes eq(p1, p2) is DECREASING in p2"""
     results = []
     metric = np.linalg.norm
@@ -90,10 +90,7 @@ def get_critical_points(p1_range, p2_min, p2_max, netw: Network, tolerance=1e-1)
         p2_low, p2_high = p2_min, p2_max
         count = 0
 
-        def reduced_interact(x, y): return interact(x, y, p1, p2_min)
-        def integrator(arr): return dx_dt(tuple(arr), decay, reduced_interact, tupled_w)
-        x0 = 100 * netw.size * np.random.random_sample(netw.size)
-        res = stability_run(integrator, DT, STABTOL, x0)
+        res = sim_network(netw, p1, p2_min)[0]
         if metric(res[0]) < 1e-2:  # We assume equilibrium at p2_min is 'large' else, we stop
             continue
         
@@ -101,10 +98,7 @@ def get_critical_points(p1_range, p2_min, p2_max, netw: Network, tolerance=1e-1)
             count += 1
             p2_mid = (p2_low + p2_high) / 2
 
-            def reduced_interact(x, y): return interact(x, y, p1, p2_mid)  # p1=tau, p2=mu
-            def integrator(arr): return dx_dt(tuple(arr), decay, reduced_interact, tupled_w)
-            x0 = 100 * netw.size * np.random.random_sample(netw.size)
-            res = stability_run(integrator, DT, STABTOL, x0)
+            res, x0 = sim_network(netw, p1, p2_mid)
             results.append([p1, p2_mid, x0.tolist(), res[0].tolist()])
 
             if metric(res[0]) > 1e-2:
@@ -124,18 +118,28 @@ def get_critical_points(p1_range, p2_min, p2_max, netw: Network, tolerance=1e-1)
     return results
 
 
-def get_lambda_stars(p1_range, p2_range):
-    """Calls find_lambda_star a fixed amount of time, a lot of which is wasted"""
-    ti, count = time.time(), 0
-    results = []
-    for p1 in p1_range:
-        for p2 in p2_range:
-            results.append([p1, p2, find_lambda_star((p1, p2))])
-        count += 1
-        print(f"Process {os.getpid()} | get_lambda_stars {round(100*count/len(p1_range))}% completed | "
-              f"average duration: {format_time_elapsed((time.time()-ti)/count)} | "
-              f"expected time left: {format_time_elapsed((time.time()-ti)/count*(len(p1_range)-count))}")
-    return results
+def sim_network(netw, p1, p2):
+    def integrator(arr):
+        inc = netw.adj_matrix @ arr
+        return -arr + [z(inc[i], p1, p2) for i in range(netw.size)]
+
+    x0 = 0.8 + 0.2 * np.random.random_sample(netw.size)
+    res = stability_run(integrator, DT, STABTOL, x0, title=str(time.time()), max_run_time=1e6)
+    return res, x0
+
+
+# def get_lambda_stars(p1_range, p2_range):
+#     """Calls find_lambda_star a fixed amount of time, a lot of which is wasted"""
+#     ti, count = time.time(), 0
+#     results = []
+#     for p1 in p1_range:
+#         for p2 in p2_range:
+#             results.append([p1, p2, find_lambda_star((p1, p2))])
+#         count += 1
+#         print(f"Process {os.getpid()} | get_lambda_stars {round(100*count/len(p1_range))}% completed | "
+#               f"average duration: {format_time_elapsed((time.time()-ti)/count)} | "
+#               f"expected time left: {format_time_elapsed((time.time()-ti)/count*(len(p1_range)-count))}")
+#     return results
 
 
 def get_critical_ls(p1_range, p2_min, p2_max, crit_val, tolerance=1e-2):
@@ -191,7 +195,7 @@ def make_network(network_generator: str, network_params: dict):
     netw = Network()
     generator = getattr(netw, network_generator)
     generator(**network_params)
-    netw.randomize_weights(WEIGHT_FUNCTION)
+    netw.exp_weights(scale=WEIGHT_FUNCTION(1), symmetric=False)
     return netw
 
 
@@ -231,7 +235,8 @@ if __name__ == "__main__":
     generating_data = int(input("Would you like to generate data/plots? [1/0]: "))
     start = time.time()
     if generating_data == 1:
-        print("CPU Count:", os.cpu_count())
+        num_cpu = os.cpu_count()
+        print("CPU Count:", num_cpu)
         futs = []
         for i in range(len(NETWORK_TYPES)):
             for j in range(RUNS_PER_TYPE):
@@ -261,7 +266,8 @@ if __name__ == "__main__":
         for name in filenames:
             print(name)
 
-        for filename in filenames:
+        xs, ys = [], []
+        for filename in [filenames[0], filenames[-1]]:
             with open(filename, "r") as f:
                 data = json.load(f)
 
@@ -270,25 +276,37 @@ if __name__ == "__main__":
             km, rh = kmax(A), rho(A)
 
             actual_p1s, actual_p2s = get_data_critical_eq(data)
-            x_range = [0.1*(i+1) for i in range(10)] + [1+i*0.5 for i in range(10)] + [i for i in range(5, 11)]
-            kmax_p1s, kmax_p2s = get_critical_ls(x_range, 0, 200, km)
-            rho_p1s, rho_p2s = get_critical_ls(x_range, 0, 200, rh)
+            # x_range = [0.1*(i+1) for i in range(10)] + [1+i*0.5 for i in range(10)] + [i for i in range(5, 11)]
+            # kmax_p1s, kmax_p2s = get_critical_ls(x_range, 0, 200, km)
+            # rho_p1s, rho_p2s = get_critical_ls(x_range, 0, 200, rh)
+            #
+            # plt.figure(figsize=(5, 4), dpi=600)
+            # plt.plot(actual_p1s, actual_p2s, 'k', label="actual")
+            # plt.plot(kmax_p1s, kmax_p2s, color='#77DD77', alpha=0.5, label="kmax")
+            # plt.plot(rho_p1s, rho_p2s, color='red', alpha=0.5, label="rho")
+            #
+            # ymin, ymax = plt.gca().get_ylim()
+            # plt.fill_between(kmax_p1s, kmax_p2s, ymin, alpha=0.5, color='#77DD77')
+            # plt.fill_between(rho_p1s, rho_p2s, ymax, alpha=0.5, color="red")
+            #
+            # plt.xlabel("Tau")
+            # plt.ylabel("Mu")
+            # # plt.legend()
+            # plt.savefig(filename.replace(".txt", "")+"oymate.png")
+            # plt.show()
 
-            plt.plot(actual_p1s, actual_p2s, 'k.', label="actual")
-            plt.plot(kmax_p1s, kmax_p2s, color='#77DD77', alpha=0.5, label="kmax")
-            plt.plot(rho_p1s, rho_p2s, color='red', alpha=0.5, label="rho")
-
-            ymin, ymax = plt.gca().get_ylim()
-            plt.fill_between(kmax_p1s, kmax_p2s, ymin, alpha=0.5, color='#77DD77')
-            plt.fill_between(rho_p1s, rho_p2s, ymax, alpha=0.5, color="red")
-
-            plt.xlabel("Tau")
-            plt.ylabel("Mu")
-            # plt.legend()
-            plt.savefig(filename.replace(".txt", ".png"), dpi=300)
-            plt.show()
+            kmax_p1s, kmax_p2s = get_critical_ls(actual_p1s, 0, 200, km)
+            actual_p2s, kmax_p2s = np.array(actual_p2s), np.array(kmax_p2s)
+            first_equal = 0
+            for hj in range(len(actual_p1s)):
+                if actual_p1s[hj] == kmax_p1s[0]:
+                    first_equal = hj
+                    break
+            xs.append(actual_p1s[first_equal:])
+            ys.append(actual_p2s[first_equal:]-kmax_p2s)
 
             get_cached_performance()
+            print(f"ay've ben waiten for {format_time_elapsed(time.time()-start)} foochin minutes mate")
 
             # lambda_stars = [find_lambda_star((p1, p2)) for (p1, p2) in zip(data[1][0], data[1][1])]
             # lower_bound_alpha = np.where(lambda_stars <= km, 1, 0)
@@ -300,6 +318,13 @@ if __name__ == "__main__":
             #          bottom=min(min(actual_p2s), min(rho_p2s), min(kmax_p2s))-0.1)
             # plt.colorbar()
             # plt.show()
+        plt.figure(figsize=(5, 4), dpi=600)
+        plt.plot(xs[0], ys[0], label="Sparse")
+        plt.plot(xs[-1], ys[-1], label='Dense')
+        plt.xlabel('Tau')
+        plt.ylabel('Dist. to survival bound')
+        plt.legend()
+        plt.show()
     
     print("\n----- PROGRAM FINISHED -----")
     print(f"Took: {format_time_elapsed(time.time()-start)}")

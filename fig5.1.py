@@ -45,7 +45,7 @@ def smallest_eig(A):
     return a, alpha
 
 
-def proposed_eig(A):
+def proposed_eig(A, flag_double_alpha=False):
     """The proposed solution to the eigenvalue selection problem"""
     eigs, vecs = np.linalg.eig(A.T)
     norms = []
@@ -54,6 +54,8 @@ def proposed_eig(A):
         norms.append(np.linalg.norm(a_ix - 1))
     eig_i = np.argmin(norms)
     a, alpha = vecs[:, eig_i] / sum(vecs[:, eig_i]), eigs[eig_i]
+    if flag_double_alpha:
+        return a, alpha, (sorted(norms)[0]==sorted(norms)[1])
     return a, alpha
 
 
@@ -84,14 +86,17 @@ ERRORS = [[] for _ in range(len(METHODS))]
 start, t1 = time.time(), time.time()
 for q in range(NUM_POINTS):
     # Generate network
-    columns = []
-    for k in range(SIZE):
-        col = np.random.choice([1., 0.], size=SIZE, p=[1 - P_0, P_0])
-        col *= np.random.exponential(scale=CONNECTION_SCALE, size=SIZE)
-        if np.random.random() < PROB_INHIB:
-            col *= -1
-        columns.append(col)
-    A = np.column_stack(columns)
+    double_alpha = True
+    while double_alpha:
+        columns = []
+        for k in range(SIZE):
+            col = np.random.choice([1., 0.], size=SIZE, p=[1 - P_0, P_0])
+            col *= np.random.exponential(scale=CONNECTION_SCALE, size=SIZE)
+            if np.random.random() < PROB_INHIB:
+                col *= -1
+            columns.append(col)
+        A = np.column_stack(columns)
+        double_alpha = proposed_eig(A, flag_double_alpha=True)[2]
 
     # Generate p vector
     P_VECTOR = np.random.exponential(scale=P_VECTOR_SCALE, size=SIZE)
